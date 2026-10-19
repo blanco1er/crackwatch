@@ -102,3 +102,4 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
 @media (prefers-reduced-motion: reduce) { .cw-step { transition: none; } }
 .cw-stats .ui-stat:nth-child(3n+1) { padding-left: 0; border-left: 0; }
 @media (max-width: 699px) { .cw-stats { --cols: 2; } .cw-stats .ui-stat:nth-child(3n+1) { padding-left: 16px; border-left: 0.5px solid var(--separator); } .cw-stats .ui-stat:nth-child(odd) { padding-left: 0; border-left: 0; } }
+#result { scroll-margin-top: 72px; }

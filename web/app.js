@@ -34,6 +34,8 @@ const T = {
     why_glare: (q) => `Glare: ${fmt(100 * (q.saturated_frac || 0), 1)} % of the wall is over-exposed.`,
     why_oblique: (q) => `The photo is too oblique (${fmt(q.tilt_deg_est, 0)}°).`,
     why_closer: (c) => c ? `The crack is about ${fmt(c.width_mm.median * c.native_px_per_mm, 1)} px wide in this photo; at least 3 px are needed for a reliable width.` : 'No crack was found at this distance; fine cracks may be invisible.',
+    why_ticket: (c, cr) => [c && c.status === 'ok' ? `The crack widened by ${fmt(c.width_delta_mm.median)} mm since the previous visit (alert from 0.2 mm).` : '',
+      cr ? `Sustained max width: ${fmt(cr.width_mm.max)} mm.` : '', 'Nothing is sent before your decision.'].filter(Boolean).join(' '),
     doFar: 'Retake, as asked', doClose: 'Take the closer photo', doVisit2: 'Go three months later', approve: 'Approve ticket', reject: 'Reject',
     approved: 'Ticket approved by you. In a real deployment it would now go to the maintenance team.', rejected: 'Ticket rejected by you. The decision is logged with the trace.',
     sMax: 'Max width', sMed: 'Median width', sLen: 'Length', sRes: 'Resolution', sConf: 'Confidence',
@@ -75,6 +77,8 @@ const T = {
     why_glare: (q) => `Reflet : ${fmt(100 * (q.saturated_frac || 0), 1)} % du mur est surexposé.`,
     why_oblique: (q) => `La photo est trop de biais (${fmt(q.tilt_deg_est, 0)}°).`,
     why_closer: (c) => c ? `La fissure fait environ ${fmt(c.width_mm.median * c.native_px_per_mm, 1)} px de large sur cette photo ; il en faut au moins 3 pour une largeur fiable.` : "Aucune fissure trouvée à cette distance ; une fissure fine peut être invisible.",
+    why_ticket: (c, cr) => [c && c.status === 'ok' ? `La fissure s'est élargie de ${fmt(c.width_delta_mm.median)} mm depuis la visite précédente (alerte à partir de 0,2 mm).` : '',
+      cr ? `Largeur max soutenue : ${fmt(cr.width_mm.max)} mm.` : '', "Rien n'est envoyé avant votre décision."].filter(Boolean).join(' '),
     doFar: 'Reprendre, comme demandé', doClose: 'Prendre la photo rapprochée', doVisit2: 'Revenir trois mois plus tard', approve: 'Valider le ticket', reject: 'Refuser',
     approved: "Ticket validé par vous. En situation réelle, il partirait maintenant vers l'équipe de maintenance.", rejected: 'Ticket refusé par vous. La décision est enregistrée avec la trace.',
     sMax: 'Largeur max', sMed: 'Largeur médiane', sLen: 'Longueur', sRes: 'Résolution', sConf: 'Confiance',
@@ -150,9 +154,18 @@ async function inspect(req, ctx) {
     warm = true;
     last = { data, ctx };
     render(data, ctx);
+    revealResult();
   } catch (e) {
     renderError(e, () => inspect(req, ctx));
+    revealResult();
   } finally { setBusy(false); }
+}
+
+// on phones the result panel sits below the photo: bring the decision into view
+function revealResult() {
+  if (innerWidth >= 1000) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('#result').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
 }
 
 function showPhoto(src) {
@@ -207,6 +220,7 @@ function render(d, ctx) {
   if (lastAct.name === 'request_retake') why = (T[lang][`why_${lastAct.args.reason}`] || T.en.why_blur)(q);
   if (lastAct.name === 'request_closer_photo') why = t('why_closer')(crack);
   if (lastAct.name === 'schedule_next_visit') why = t('nextVisit')(lastAct.args.days);
+  if (lastAct.name === 'propose_ticket') why = t('why_ticket')(d.comparison, crack);
   instr.textContent = [why, lastAct.args.instruction].filter(Boolean).join(' ');
   dec.after(instr);
 
@@ -349,6 +363,7 @@ async function uploadOwn(file) {
     warm = true;
     last = { data, ctx: {} };
     render(data, {});
+    revealResult();
     const a = data.trace[data.trace.length - 1].action.name;
     if (a === 'request_retake' || a === 'request_closer_photo') own.retakes += 1;
     else { own.retakes = 0; if (data.measurement.status === 'ok') { own.lastKey = up.key; $('#prev-wrap').hidden = false; } }
