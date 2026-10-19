@@ -1,0 +1,9 @@
+data/
+eval_tune/
+eval_real/overlays/
+__pycache__/
+*.pyc
+.venv*/
+.DS_Store
+.env*
+*.pem

@@ -1,0 +1,23 @@
+{
+  "name": "A5-7x10-17mm",
+  "squares": [
+    7,
+    10
+  ],
+  "square_mm": 17.0,
+  "marker_mm": 12.5,
+  "dict_id": 5,
+  "first_id": 20,
+  "paper_mm": [
+    148.0,
+    210.0
+  ],
+  "board_offset_mm": [
+    14.5,
+    14.0
+  ],
+  "board_mm": [
+    119.0,
+    170.0
+  ]
+}

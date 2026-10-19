@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CrackWatch</title>
+<meta name="description" content="A printed card turns a phone photo into a crack gauge: OpenCV 5 measures the width in millimetres, an agent on Amazon Bedrock decides what to do next, and a human approves every ticket.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/components.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="ui-root">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 7h3v3H8zM13 10h3v3h-3zM8 13h3v3H8z" fill="currentColor"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.4-2h6.2l1.4 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4.5M12 17v.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+</svg>
+
+<header class="ui-toolbar cw-bar" id="top">
+  <a class="cw-brand" href="/" aria-label="CrackWatch home">
+    <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="var(--label)"/><path d="M8 6.5l4.2 6.3-2.3 2.7 4.4 6M14.3 21.5l1.5-4.7 4.2-1.8" fill="none" stroke="var(--bg-grouped)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>CrackWatch</span>
+  </a>
+  <div class="cw-bar__end">
+    <a class="ui-button ui-button--plain ui-button--sm cw-hide-compact" href="/card.pdf" target="_blank" rel="noopener" data-visit="card" data-i18n="printCard">Print the card</a>
+    <fieldset class="ui-segmented cw-lang" aria-label="Language">
+      <label><input type="radio" name="lang" value="en" checked>EN</label>
+      <label><input type="radio" name="lang" value="fr">FR</label>
+    </fieldset>
+  </div>
+</header>
+
+<main class="cw-main">
+  <section class="cw-intro">
+    <h1 class="ui-large-title" data-i18n="headline">A printed card turns a phone photo into a crack gauge.</h1>
+    <p class="cw-lede" data-i18n="lede">OpenCV&nbsp;5 reads the card to get millimetres, measures the crack width with its uncertainty, and compares it with the last visit. An agent on Amazon&nbsp;Bedrock decides what happens next: a retake, a closer photo of one spot, or a ticket that only a human can approve.</p>
+    <p class="cw-proof ui-footnote" data-i18n="proof">Measured so far on 300 held-out synthetic photos: median-width error 0.17&nbsp;mm, card found in 99.7&nbsp;%. Real-photo validation is in progress and will be published here.</p>
+  </section>
+
+  <section class="cw-work" aria-label="Inspection">
+    <div class="cw-left">
+      <div class="cw-steps" role="group" aria-labelledby="steps-title">
+        <h2 class="ui-headline" id="steps-title" data-i18n="guided">Guided inspection of a synthetic wall</h2>
+        <ol class="cw-steplist">
+          <li><button class="cw-step" data-step="blurry"><span class="cw-step__n">1</span><span><b data-i18n="s1t">First photo</b><small data-i18n="s1d">Taken in a hurry</small></span></button></li>
+          <li><button class="cw-step" data-step="far"><span class="cw-step__n">2</span><span><b data-i18n="s2t">Retake</b><small data-i18n="s2d">Sharp, but from far away</small></span></button></li>
+          <li><button class="cw-step" data-step="close"><span class="cw-step__n">3</span><span><b data-i18n="s3t">Closer photo</b><small data-i18n="s3d">Where the agent asked</small></span></button></li>
+          <li><button class="cw-step" data-step="visit2"><span class="cw-step__n">4</span><span><b data-i18n="s4t">Three months later</b><small data-i18n="s4d">Second visit, same card</small></span></button></li>
+        </ol>
+      </div>
+
+      <figure class="cw-viewer" id="viewer" aria-live="polite">
+        <div class="cw-viewer__frame">
+          <img id="photo" alt="" hidden>
+          <div class="cw-viewer__empty" id="viewer-empty">
+            <p class="ui-headline" data-i18n="emptyTitle">Start with step 1, or measure your own photo.</p>
+            <p class="ui-subhead ui-secondary" data-i18n="emptyBody">Each step sends a photo to the measuring service on AWS Lambda (arm64). The agent's answer decides the next step.</p>
+          </div>
+          <div class="cw-viewer__busy" id="busy" hidden>
+            <span class="ui-spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <span id="busy-text" data-i18n="busy">Measuring with OpenCV 5…</span>
+          </div>
+        </div>
+        <figcaption class="ui-footnote ui-secondary" id="caption"></figcaption>
+      </figure>
+
+      <details class="cw-own" id="own">
+        <summary class="ui-headline" data-i18n="ownTitle">Measure your own crack</summary>
+        <ol class="cw-howto ui-callout">
+          <li data-i18n-html="own1"><a href="/card.pdf" target="_blank" rel="noopener" data-visit="card">Print the A6 card</a> at 100&nbsp;% (actual size). Its 50&nbsp;mm ruler must measure 50&nbsp;mm.</li>
+          <li data-i18n="own2">Tape it flat on the wall, 2 to 10 cm from the crack.</li>
+          <li data-i18n="own3">Photograph card and crack together, facing the wall, without flash.</li>
+        </ol>
+        <div class="cw-own__actions">
+          <label class="ui-button ui-button--tinted cw-file">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-camera"/></svg>
+            <span data-i18n="choose">Choose or take a photo</span>
+            <input type="file" id="file" accept="image/jpeg,image/png,image/*" capture="environment">
+          </label>
+          <label class="cw-check ui-subhead" id="prev-wrap" hidden><input type="checkbox" id="use-prev"> <span data-i18n="usePrev">Compare with my previous photo</span></label>
+        </div>
+        <p class="ui-footnote ui-secondary" data-i18n="privacy">Your photo goes to a private storage bucket and is deleted automatically after 24 hours. Decoding drops EXIF and GPS data. Please do not photograph people.</p>
+      </details>
+    </div>
+
+    <aside class="cw-right" aria-label="Result">
+      <div id="result-empty" class="cw-result-empty ui-subhead ui-secondary" data-i18n="resultEmpty">The measurement, the agent's decision and every step of its reasoning will appear here.</div>
+      <div id="result" hidden>
+        <p class="cw-decision ui-title3" id="decision"></p>
+        <div class="cw-actions" id="actions"></div>
+        <div class="ui-stats cw-stats" id="stats"></div>
+        <p class="ui-footnote ui-secondary cw-truth" id="truth" hidden></p>
+        <div id="compare-box" hidden>
+          <h3 class="ui-headline" data-i18n="changeTitle">Change since the previous visit</h3>
+          <div class="ui-stats cw-stats" id="compare-stats"></div>
+        </div>
+        <h3 class="ui-headline cw-trace-title" data-i18n="traceTitle">What the agent did</h3>
+        <ol class="cw-trace" id="trace"></ol>
+        <details class="cw-quality">
+          <summary class="ui-subhead" data-i18n="qualityTitle">Photo quality and timings</summary>
+          <dl class="cw-dl ui-footnote" id="quality"></dl>
+        </details>
+      </div>
+    </aside>
+  </section>
+
+  <section class="cw-how" aria-labelledby="how-title">
+    <h2 class="ui-title2" id="how-title" data-i18n="howTitle">How it works</h2>
+    <ol class="cw-pipeline ui-callout">
+      <li data-i18n-html="how1"><b>Scale.</b> <code>cv2.aruco.CharucoDetector</code> finds the card; <code>findHomography</code> (MAGSAC) maps the photo to the wall plane in millimetres.</li>
+      <li data-i18n-html="how2"><b>Quality.</b> Blur is measured in pixels on the card's black-and-white edges; glare and tilt are checked before anything is measured.</li>
+      <li data-i18n-html="how3"><b>Width.</b> A multi-scale Hessian ridge filter finds the crack; each cross-section is deconvolved with the blur measured on the card, giving sub-pixel widths and an uncertainty.</li>
+      <li data-i18n-html="how4"><b>Change.</b> Both visits share the card's frame; if the card was re-glued, ORB + MAGSAC + ECC register the wall texture.</li>
+      <li data-i18n-html="how5"><b>Decision.</b> Amazon Nova 2 Lite on Bedrock chooses one tool (retake, closer photo, compare, ticket, next visit). A deterministic policy validates every choice and takes over if the model fails or the daily budget is used.</li>
+    </ol>
+    <p class="ui-footnote ui-secondary cw-disclaimer" data-i18n="disclaimer">CrackWatch is a monitoring and triage aid, not a structural diagnosis. Thresholds are configurable defaults, not engineering norms. Tickets are never sent without a human decision.</p>
+  </section>
+</main>
+
+<footer class="cw-foot ui-footnote ui-secondary">
+  <span>CrackWatch · OpenCV 5.0.0 · AWS Lambda arm64 · Amazon Bedrock</span>
+  <span id="health"></span>
+</footer>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# local demo server with Bedrock, owner visit report (not needed for the measurement pipeline)
+-r requirements.txt
+boto3==1.43.115
+botocore[crt]==1.43.115

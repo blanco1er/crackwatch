@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <title>CrackWatch architecture</title>
+  <rect width="1200" height="640" fill="#F2F2F7"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#3A3A3C"/></marker>
+    <style>
+      .box{fill:#fff;stroke:#C7C7CC;stroke-width:1}
+      .aws{fill:#fff;stroke:#0071E3;stroke-width:1.5}
+      .t{font-size:17px;font-weight:600;fill:#000}
+      .s{font-size:13px;fill:#3A3A3C}
+      .m{font-size:12px;fill:#6E6E73;font-family:ui-monospace,'SF Mono',Menlo,monospace}
+      .l{stroke:#3A3A3C;stroke-width:1.6;fill:none;marker-end:url(#a)}
+      .d{stroke:#3A3A3C;stroke-width:1.4;fill:none;stroke-dasharray:5 4;marker-end:url(#a)}
+      .h{font-size:13px;font-weight:600;fill:#0066CC}
+    </style>
+  </defs>
+  <text x="40" y="46" font-size="24" font-weight="700">CrackWatch on AWS</text>
+  <text x="40" y="70" class="s">One container Lambda (arm64 / Graviton) runs OpenCV 5.0.0 and the agent loop; the model only chooses tools, the rules validate.</text>
+
+  <rect x="40" y="110" width="220" height="150" rx="14" class="box"/>
+  <text x="60" y="140" class="t">Phone or browser</text>
+  <text x="60" y="164" class="s">Printed ChArUco card</text>
+  <text x="60" y="184" class="s">taped next to the crack</text>
+  <text x="60" y="214" class="s">Guided demo (synthetic)</text>
+  <text x="60" y="234" class="s">or your own photo</text>
+
+  <rect x="330" y="110" width="250" height="150" rx="14" class="aws"/>
+  <text x="350" y="140" class="t">API Gateway HTTP API</text>
+  <text x="350" y="164" class="s">HTTPS, throttled routes</text>
+  <text x="350" y="184" class="m">GET /  ·  POST /api/inspect</text>
+  <text x="350" y="204" class="m">POST /api/upload-url</text>
+  <text x="350" y="224" class="m">POST /api/tickets/{id}/decision</text>
+
+  <rect x="330" y="330" width="250" height="120" rx="14" class="aws"/>
+  <text x="350" y="360" class="t">Amazon S3 (private)</text>
+  <text x="350" y="384" class="s">Presigned POST, 5 min, ≤ 15 MB</text>
+  <text x="350" y="404" class="s">SSE, TLS only, deleted after 1 day</text>
+  <text x="350" y="424" class="s">EXIF / GPS dropped at decode</text>
+
+  <rect x="650" y="110" width="510" height="340" rx="14" class="aws"/>
+  <text x="670" y="140" class="t">AWS Lambda · container image · arm64 (Graviton)</text>
+  <text x="670" y="160" class="m">Python 3.12 · opencv-python-headless 5.0.0.93 · numpy 2.5.4</text>
+  <rect x="670" y="178" width="230" height="250" rx="10" fill="#F2F2F7"/>
+  <text x="686" y="202" class="h">OpenCV 5 measurement</text>
+  <text x="686" y="226" class="s">1. CharucoDetector → corners</text>
+  <text x="686" y="248" class="s">2. findHomography (MAGSAC)</text>
+  <text x="686" y="270" class="s">3. Blur on card edges, glare, tilt</text>
+  <text x="686" y="292" class="s">4. warpPerspective → mm frame</text>
+  <text x="686" y="314" class="s">5. Hessian ridge + hysteresis</text>
+  <text x="686" y="336" class="s">6. Thinning + spur pruning</text>
+  <text x="686" y="358" class="s">7. Width: profile deconvolved</text>
+  <text x="702" y="378" class="s">with the card-measured blur</text>
+  <text x="686" y="400" class="s">8. Change: ORB + MAGSAC + ECC</text>
+  <rect x="915" y="178" width="225" height="250" rx="10" fill="#F2F2F7"/>
+  <text x="931" y="202" class="h">Agent loop (≤ 6 steps)</text>
+  <text x="931" y="226" class="s">Rule policy suggests a tool</text>
+  <text x="931" y="248" class="s">Nova 2 Lite chooses one tool</text>
+  <text x="931" y="270" class="s">Guard-rails validate it</text>
+  <text x="931" y="296" class="m">request_retake</text>
+  <text x="931" y="314" class="m">request_closer_photo</text>
+  <text x="931" y="332" class="m">compare_with_previous</text>
+  <text x="931" y="350" class="m">propose_ticket → human</text>
+  <text x="931" y="368" class="m">schedule_next_visit</text>
+  <text x="931" y="396" class="s">Fallback: rules if the model</text>
+  <text x="931" y="414" class="s">fails or the daily cap is hit</text>
+
+  <rect x="650" y="500" width="250" height="110" rx="14" class="aws"/>
+  <text x="670" y="530" class="t">Amazon Bedrock</text>
+  <text x="670" y="554" class="s">Converse API, tool use</text>
+  <text x="670" y="574" class="m">us.amazon.nova-2-lite-v1:0</text>
+  <text x="670" y="594" class="s">≤ 250 calls / day (configurable)</text>
+
+  <rect x="930" y="500" width="230" height="110" rx="14" class="aws"/>
+  <text x="950" y="530" class="t">DynamoDB + CloudWatch</text>
+  <text x="950" y="554" class="s">Traces, tickets, usage caps</text>
+  <text x="950" y="574" class="s">Anonymous visit log (TTL)</text>
+  <text x="950" y="594" class="s">JSON logs, 14-day retention</text>
+
+  <rect x="40" y="330" width="220" height="120" rx="14" class="box"/>
+  <text x="60" y="360" class="t">Human inspector</text>
+  <text x="60" y="384" class="s">Approves or rejects</text>
+  <text x="60" y="404" class="s">every proposed ticket</text>
+  <text x="60" y="424" class="s">Sees the full trace</text>
+
+  <path class="l" d="M260 185 H326"/>
+  <path class="l" d="M580 185 H646"/>
+  <path class="d" d="M150 260 V300 H455 V326"/>
+  <text x="170" y="292" class="s">photo upload (presigned)</text>
+  <path class="l" d="M646 400 H584"/>
+  <text x="590" y="392" class="s">read</text>
+  <path class="l" d="M775 450 V496"/>
+  <path class="l" d="M1045 450 V496"/>
+  <path class="l" d="M330 240 H295 V400 H264"/>
+  <text x="100" y="475" class="s">decision + trace (via the API)</text>
+</svg>

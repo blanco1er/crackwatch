@@ -1,0 +1,5 @@
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
+# pinned so the Bedrock Converse client does not depend on the base image's boto3
+boto3==1.43.115
+botocore==1.43.115

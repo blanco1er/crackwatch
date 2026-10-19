@@ -1,0 +1,46 @@
+{
+ "generator": "crackwatch.synth (procedural concrete, exact ground truth)",
+ "seed": 424246,
+ "samples": {
+  "blurry": {
+   "image": "blurry.jpg",
+   "camera_px_per_mm": 6.5,
+   "tilt_deg": 12.8,
+   "true_width_mm": {
+    "median": 0.354,
+    "max": 0.567
+   },
+   "true_length_mm": 69.8
+  },
+  "far": {
+   "image": "far.jpg",
+   "camera_px_per_mm": 3.8,
+   "tilt_deg": 14.9,
+   "true_width_mm": {
+    "median": 0.354,
+    "max": 0.567
+   },
+   "true_length_mm": 69.8
+  },
+  "close": {
+   "image": "close.jpg",
+   "camera_px_per_mm": 9.0,
+   "tilt_deg": 16.9,
+   "true_width_mm": {
+    "median": 0.354,
+    "max": 0.567
+   },
+   "true_length_mm": 69.8
+  },
+  "visit2": {
+   "image": "visit2.jpg",
+   "camera_px_per_mm": 9.0,
+   "tilt_deg": 17.1,
+   "true_width_mm": {
+    "median": 0.776,
+    "max": 1.017
+   },
+   "true_length_mm": 81.8
+  }
+ }
+}
