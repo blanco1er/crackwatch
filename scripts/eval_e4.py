@@ -44,6 +44,9 @@ def run_e4(data_dir, out_dir, workers):
     json.dump(recs, open(os.path.join(out_dir, "e4_results.json"), "w"), indent=1)
     ok = [r for r in recs if r["cmp"]["status"] == "ok"]
     lines = [f"- Paires: {len(recs)}; comparables (fissure mesurée aux deux visites): {len(ok)}"]
+    nc = [f"{r['id']} ({r['cmp'].get('reason', '')})" for r in recs if r["cmp"]["status"] != "ok"]
+    if nc:
+        lines.append(f"- Non comparables : {', '.join(nc)}")
     if not ok:
         return lines
     moved = [r for r in ok if r["card_moved"]]
@@ -78,4 +81,7 @@ def run_e4(data_dir, out_dir, workers):
     nl = np.array([r["cmp"]["new_length_mm"] for r in ok])
     te = np.array([r["extend"] for r in ok])
     lines.append(f"- Allongement: MAE longueur nouvelle {np.mean(np.abs(nl - te)):.1f} mm (vrai 0/8/15 mm)")
+    nw = sum(len(r["cmp"].get("windows", [])) for r in ok if r["widen"] == 0)
+    fw = sum(w["significant"] for r in ok if r["widen"] == 0 for w in r["cmp"].get("windows", []))
+    lines.append(f"- Tronçons de ~10 mm testés sur les paires sans élargissement : {nw} ; déclarés élargis à tort : {fw}")
     return lines + tbl

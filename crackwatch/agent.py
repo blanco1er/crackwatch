@@ -135,10 +135,16 @@ def decide_next_action(obs: dict, state: AgentState, policy: Policy = Policy()) 
     cmp = state.comparison or {}
     if cmp.get("status") == "ok":
         evidence.update({"width_delta_median_mm": cmp["width_delta_mm"]["median"], "new_length_mm": cmp["new_length_mm"]})
-        grew = (cmp.get("significant_widening") and (cmp["width_delta_mm"]["median"] or 0) >= policy.ticket_growth_mm) \
+        # largest statistically significant widening (whole crack or one ~10 mm stretch of it)
+        widen = cmp.get("widening_mm")
+        if widen is None:
+            widen = cmp["width_delta_mm"]["median"] or 0
+        if cmp.get("widening_location_board_mm"):
+            evidence.update({"widening_mm": widen, "widening_location_board_mm": cmp["widening_location_board_mm"]})
+        grew = (cmp.get("significant_widening") and widen >= policy.ticket_growth_mm) \
             or (cmp.get("significant_growth") and cmp["new_length_mm"] >= policy.ticket_new_length_mm)
         if grew:
-            sev = "high" if sev == "high" or (cmp["width_delta_mm"]["median"] or 0) >= 2 * policy.ticket_growth_mm else "medium"
+            sev = "high" if sev == "high" or (cmp.get("significant_widening") and widen >= 2 * policy.ticket_growth_mm) else "medium"
     if sev and state.ticket is None:
         return Action("propose_ticket", {"severity": sev, "evidence": evidence}, "triage threshold exceeded",
                       requires_human_approval=True)

@@ -20,6 +20,10 @@ def obs(status="ok", q=None, cracks=None):
 
 CMP_GROW = {"status": "ok", "width_delta_mm": {"median": 0.45}, "new_length_mm": 12.0,
             "significant_widening": True, "significant_growth": True}
+# one 10 mm stretch widened by 0.5 mm, the rest unchanged: network median ~0, local test significant
+CMP_LOCAL = {"status": "ok", "width_delta_mm": {"median": 0.01}, "new_length_mm": 0.0,
+             "significant_widening": True, "significant_growth": False, "widening_mm": 0.5,
+             "widening_location_board_mm": [120.0, 40.0], "widening_scope": "window"}
 CMP_STABLE = {"status": "ok", "width_delta_mm": {"median": 0.01}, "new_length_mm": 0.0,
               "significant_widening": False, "significant_growth": False}
 
@@ -36,6 +40,7 @@ SCENARIOS = [
     ("history -> compare", obs(), {"previous_inspection_id": "insp-001"}, "compare_with_previous"),
     ("fine & stable", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_STABLE}, "schedule_next_visit"),
     ("growth -> ticket", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_GROW}, "propose_ticket"),
+    ("local widening -> ticket", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_LOCAL}, "propose_ticket"),
     ("wide crack -> ticket", obs(cracks=[crack(2.6, 2.0)]), {}, "propose_ticket"),
     ("near threshold but uncertain", obs(cracks=[crack(1.05, 0.9, unc=0.1)]), {}, "schedule_next_visit"),
     ("step budget", obs(), {"step": 6}, "stop"),

@@ -8,10 +8,16 @@
      replaced) it is used, optionally refined with cv2.findTransformECC.
 3. v2 skeleton points are mapped into v1's frame and matched to v1's skeleton with
    cv2.distanceTransformWithLabels -> new crack length and point-wise width deltas.
+4. Widening is tested on the whole crack AND on each ~10 mm stretch of it (a crack often widens
+   locally; the network-wide median hides that). Each test compares the change with its combined
+   1-sigma uncertainty (scatter of the point deltas + each visit's systematic width error), at a
+   family-wise false-alarm rate of 5 % (one-sided, Bonferroni over all tests made), and only
+   changes of at least 0.1 mm count.
 """
 from __future__ import annotations
 
 import math
+from statistics import NormalDist
 
 import cv2
 import numpy as np
@@ -94,6 +100,35 @@ def _refine_ecc(rect1, rect2, T, scale_px_per_mm=3.0):
     return T_new / T_new[2, 2], {"ecc": "ok", "ecc_cc": float(cc)}
 
 
+# Per-visit systematic width error (1 sigma) of a stretch of crack: u = sqrt(a^2 + (r w)^2). It does not
+# average out along the crack (scale, blur and edge-model errors are shared by all points of a photo).
+# r = 3 % is an assumption (wall relief / lens residuals the card cannot see); a is calibrated on
+# synthetic pairs that are not the reported test set (scripts/calib_sys.py), never on real photos.
+SYS_ABS_MM = 0.045              # one ~10 mm stretch
+SYS_ABS_WHOLE_MM = 0.0          # whole crack: the 3 % term alone already over-covers the calibration pairs
+SYS_REL = 0.03
+DEPTH_PRIOR_REL = 0.35          # same term as measure.summarize when the depth is an assumed prior
+WINDOW_MM = 10.0
+MIN_CHANGE_MM = 0.1             # practical floor: smaller changes are not reported as widening
+ALPHA = 0.05
+CORR_MM = 1.0                   # ~1 independent width sample per mm of crack
+
+
+def _u_sys(w_mm, prior_depth, a_mm):
+    rel = math.hypot(SYS_REL, DEPTH_PRIOR_REL) if prior_depth else SYS_REL
+    return math.hypot(a_mm, rel * w_mm)
+
+
+def _delta_test(dw, w1, w2, prior1, prior2, length_mm, a_mm=SYS_ABS_MM):
+    """Median width change of a set of matched points and its 1-sigma uncertainty."""
+    d = float(np.median(dw))
+    mad = float(np.median(np.abs(dw - d)))
+    n_eff = max(1.0, length_mm / CORR_MM)
+    u_stat = 1.2533 * 1.4826 * mad / math.sqrt(n_eff)      # standard error of a median
+    u = math.sqrt(u_stat ** 2 + _u_sys(w1, prior1, a_mm) ** 2 + _u_sys(w2, prior2, a_mm) ** 2)
+    return d, u, u_stat
+
+
 def _transform_size_mm(T, pts):
     return float(np.max(np.linalg.norm(apply_h(T, pts) - pts, axis=1)))
 
@@ -106,8 +141,13 @@ def compare(res1: MeasureResult, res2: MeasureResult, match_tol_mm=1.5, card_mov
     c1, c2 = res1.debug["comps"], res2.debug["comps"]
     pts1 = np.vstack([c["pts_mm"] for c in c1])
     w1 = np.concatenate([c["width_smooth_mm"] for c in c1])
+    w1r = np.concatenate([c["width_mm"] for c in c1])
+    cid1 = np.concatenate([np.full(len(c["pts_mm"]), k) for k, c in enumerate(c1)])
+    prior1 = np.concatenate([np.full(len(c["pts_mm"]), c["depth_source"] != "resolved") for c in c1])
     pts2 = np.vstack([c["pts_mm"] for c in c2])
     w2 = np.concatenate([c["width_smooth_mm"] for c in c2])
+    w2r = np.concatenate([c["width_mm"] for c in c2])
+    prior2 = np.concatenate([np.full(len(c["pts_mm"]), c["depth_source"] != "resolved") for c in c2])
     T_tex, reg = register_texture(r1, r2)
     T = np.eye(3)
     reg["mode"] = "card_frame"
@@ -150,26 +190,68 @@ def compare(res1: MeasureResult, res2: MeasureResult, match_tol_mm=1.5, card_mov
         ui, vi = uv[inside, 0].astype(int), uv[inside, 1].astype(int)
         ev[inside] = resp_max[vi, ui] > seg1["thr"][0]
     new = ~matched & inside & ~ev
-    dw = w2[matched] - w1[j[matched]]
+    if not matched.any():
+        return {"status": "cannot_compare", "reason": "no common crack: no v2 point lies on a v1 crack",
+                "registration": reg, "new_length_mm": round(float(new.sum()) * 1.08 / r2.R, 1)}
+    jm = j[matched]
+    dw = w2[matched] - w1[jm]                    # smoothed widths (reported median, as before)
+    dwr = w2r[matched] - w1r[jm]                 # raw widths: independent samples for the tests
     new_len = float(new.sum()) * 1.08 / r2.R
-    n_eff = max(1.0, matched.sum() / (2.0 * r2.R))           # ~1 independent sample per 2 mm
-    mad = float(np.median(np.abs(dw - np.median(dw)))) if dw.size else 0.0
-    u_delta = math.sqrt((1.4826 * mad / math.sqrt(n_eff)) ** 2 + 0.04 ** 2)
+    step2 = 1.08 / r2.R                          # mm of crack per v2 skeleton point
+    # --- tests: whole crack + each WINDOW_MM stretch (cells of v1's board frame, per v1 crack)
+    tests = []
+    d, u, us = _delta_test(dwr, float(np.median(w1r[jm])), float(np.median(w2r[matched])),
+                           bool(np.mean(prior1[jm]) > 0.5), bool(np.mean(prior2[matched]) > 0.5), matched.sum() * step2,
+                           SYS_ABS_WHOLE_MM)
+    tests.append({"scope": "whole", "delta_mm": d, "u_mm": u, "u_stat_mm": us, "length_mm": matched.sum() * step2,
+                  "w1_mm": float(np.median(w1r[jm])), "center_board_mm": pts1[jm].mean(0)})
+    cell = np.floor(pts1[jm] / WINDOW_MM).astype(np.int64)
+    key = np.column_stack([cid1[jm], cell])
+    uk, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.ravel()
+    for k in range(len(uk)):
+        sel = inv == k
+        L = sel.sum() * step2
+        if L < 0.5 * WINDOW_MM:                  # too little matched crack in this cell
+            continue
+        sel_idx = np.flatnonzero(matched)[sel]
+        d, u, us = _delta_test(dwr[sel], float(np.median(w1r[jm[sel]])), float(np.median(w2r[sel_idx])),
+                               bool(np.mean(prior1[jm[sel]]) > 0.5), bool(np.mean(prior2[sel_idx]) > 0.5), L)
+        tests.append({"scope": "window", "delta_mm": d, "u_mm": u, "u_stat_mm": us, "length_mm": L,
+                      "w1_mm": float(np.median(w1r[jm[sel]])), "center_board_mm": pts1[jm[sel]].mean(0)})
+    z_crit = NormalDist().inv_cdf(1 - ALPHA / len(tests))       # Bonferroni, one-sided
+    for t_ in tests:
+        t_["z"] = t_["delta_mm"] / max(t_["u_mm"], 1e-9)
+        t_["significant"] = bool(t_["z"] > z_crit and t_["delta_mm"] >= MIN_CHANGE_MM)
+    sig = [t_ for t_ in tests if t_["significant"]]
     max1 = max(c["width_mm"]["max"] for c in res1.cracks)
     max2 = max(c["width_mm"]["max"] for c in res2.cracks)
     out = {
         "status": "ok", "registration": reg,
         "T_board1_from_board2": T.tolist(),
         "matched_fraction_v2": round(float(matched.mean()), 3),
-        "width_delta_mm": {"median": round(float(np.median(dw)), 3) if dw.size else None,
-                           "p90": round(float(np.percentile(dw, 90)), 3) if dw.size else None,
+        "width_delta_mm": {"median": round(float(np.median(dw)), 3),
+                           "p90": round(float(np.percentile(dw, 90)), 3),
                            "max_width_v1": max1, "max_width_v2": max2,
                            "max_delta": round(max2 - max1, 3)},
         "new_length_mm": round(new_len, 1),
-        "delta_uncertainty_mm": round(u_delta, 3),
+        "delta_uncertainty_mm": round(tests[0]["u_mm"], 3),
+        "z_critical": round(z_crit, 2),
+        "windows": [{"center_board_mm": [round(float(v), 1) for v in t_["center_board_mm"]],
+                     "length_mm": round(float(t_["length_mm"]), 1), "delta_mm": round(t_["delta_mm"], 3),
+                     "u_mm": round(t_["u_mm"], 3), "u_stat_mm": round(t_["u_stat_mm"], 3), "w1_mm": round(t_["w1_mm"], 3),
+                     "z": round(t_["z"], 2), "significant": t_["significant"]}
+                    for t_ in tests[1:]],
     }
-    med = out["width_delta_mm"]["median"] or 0.0
-    out["significant_widening"] = bool(med > max(0.1, 2 * u_delta))
+    out["whole"] = {"delta_mm": round(tests[0]["delta_mm"], 3), "u_mm": round(tests[0]["u_mm"], 3),
+                    "u_stat_mm": round(tests[0]["u_stat_mm"], 3), "w1_mm": round(tests[0]["w1_mm"], 3),
+                    "z": round(tests[0]["z"], 2), "significant": tests[0]["significant"]}
+    out["significant_widening"] = bool(sig)
+    # the largest change that passed the test (whole crack or one stretch), with where it is
+    best = max(sig, key=lambda t_: t_["delta_mm"]) if sig else None
+    out["widening_mm"] = round(best["delta_mm"], 3) if best else None
+    out["widening_location_board_mm"] = [round(float(v), 1) for v in best["center_board_mm"]] if best else None
+    out["widening_scope"] = best["scope"] if best else None
     out["significant_growth"] = bool(new_len > 4.0)
     return out
 
