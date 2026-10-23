@@ -97,7 +97,7 @@ async function setImg(img, key) { const v = await idb.get(key); if (v) img.src =
 // ------------------------------------------------------------------ data model (this device only)
 // crack = { id, name, place, demo, createdAt, nextVisitAt, visits: [{ id, at, shots: [shot] }] }
 // shot  = { id, at, source, key, status, decision, trace, quality, cracks, comparison, ticket, timings, llm, img, ba, truth }
-const DATA_KEY = 'cw-simple-v1';
+const DATA_KEY = 'cw-simple-v2';
 const data = safeJSON(store.get(DATA_KEY)) || { cracks: [] };
 function save() {
   if (!store.set(DATA_KEY, JSON.stringify(data))) toast({ title: t('saveFailed'), detail: t('saveFailedDetail'), tone: 'critical' });
@@ -198,37 +198,64 @@ function hero(mm, { unc, cls = '' } = {}) {
   return h('div', { class: `hero ${cls}` }, h('span', { class: 'hero__num' }, n), h('span', { class: 'hero__unit' }, unit), unc != null ? h('span', { class: 'hero__unc' }, `± ${Wt(unc)}`) : null);
 }
 
-// ------------------------------------------------------------------ example: one crack followed over three months (4 photos)
+// ------------------------------------------------------------------ the example: a REAL crack (owner's photo, 23 Oct 2026)
 const EX_ID = 'example';
+const SIM_ID = 'simulation';
+const REAL_AT = new Date(2026, 9, 23, 18, 31).getTime();
+let truth = null;
+async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba]) if (k) await idb.del(k); } }
+let inflight = false;
+function newExample() {
+  const c = { id: EX_ID, demo: true, example: true, real: true, tracked: true, name: t('exName'), place: t('exPlace'), createdAt: REAL_AT, nextVisitAt: null,
+    visits: [{ id: 'e1', at: REAL_AT, shots: [] }] };
+  data.cracks = data.cracks.filter((x) => x.id !== EX_ID); data.cracks.unshift(c); save();
+  return c;
+}
+async function startExample() {
+  if (inflight) return;
+  inflight = true;
+  const old = crackById(EX_ID); if (old) await dropImages(old);
+  const c = newExample();
+  S.run = { mode: 'example', crackId: c.id, phase: 'measuring', photo: '/samples/real.jpg' };
+  go('analyze');
+  visit('sample', { sample: 'real' });
+  try {
+    const d = await api('/api/inspect', { image: { sample: 'real' }, previous: null, retakes: 0 });
+    warm = true;
+    const sh = await recordShot(c, d, { source: 'sample:real', at: REAL_AT, visitIndex: 0 });
+    S.run = { ...S.run, phase: 'done', result: d, shot: sh };
+  } catch (e) { S.run = { ...S.run, phase: 'error', error: e }; }
+  inflight = false;
+  if (S.view === 'analyze') renderAnalyze();
+}
+
+// ------------------------------------------------------------------ simulation: one synthetic crack followed over three months (4 photos)
 const STEPS = [
   { id: 'blurry', visit: 0, retakes: 0 },
   { id: 'far', visit: 0, retakes: 1 },
   { id: 'close', visit: 0, retakes: 2 },
   { id: 'visit2', visit: 1, retakes: 0, previous: 'close' },
 ];
-let truth = null;
-function newExample() {
+function newSim() {
   const now = Date.now(); const d1 = now - 91 * DAY;
-  const c = { id: EX_ID, demo: true, example: true, tracked: true, name: t('exName'), place: t('exPlace'), createdAt: d1, nextVisitAt: null,
+  const c = { id: SIM_ID, demo: true, sim: true, tracked: true, name: t('simName'), place: t('simPlace'), createdAt: d1, nextVisitAt: null,
     visits: [{ id: 'v1', at: d1, shots: [] }, { id: 'v2', at: now, shots: [] }] };
-  data.cracks = data.cracks.filter((x) => x.id !== EX_ID); data.cracks.unshift(c); save();
+  data.cracks = data.cracks.filter((x) => x.id !== SIM_ID); data.cracks.push(c); save();
   return c;
 }
-async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba]) if (k) await idb.del(k); } }
-let inflight = false;
-async function startExample() {
+async function startSim() {
   if (inflight) return;
-  const old = crackById(EX_ID); if (old) await dropImages(old);
-  newExample();
-  S.run = { mode: 'example', crackId: EX_ID, step: 0, phase: 'idle' };
+  const old = crackById(SIM_ID); if (old) await dropImages(old);
+  newSim();
+  S.run = { mode: 'sim', crackId: SIM_ID, step: 0, phase: 'idle' };
   go('analyze');
-  runExampleStep(0);
+  runSimStep(0);
 }
-async function runExampleStep(i) {
+async function runSimStep(i) {
   if (inflight) return;
   inflight = true;
-  const st = STEPS[i]; const c = crackById(EX_ID) || newExample();
-  S.run = { mode: 'example', crackId: c.id, step: i, phase: 'measuring', photo: `/samples/${st.id}.jpg` };
+  const st = STEPS[i]; const c = crackById(SIM_ID) || newSim();
+  S.run = { mode: 'sim', crackId: c.id, step: i, phase: 'measuring', photo: `/samples/${st.id}.jpg` };
   renderAnalyze();
   visit('sample', { sample: st.id });
   try {
@@ -241,6 +268,7 @@ async function runExampleStep(i) {
   inflight = false;
   if (S.view === 'analyze') renderAnalyze();
 }
+const badgeOf = (c) => (c && c.sim ? t('simBadge') : c && c.example ? t('exampleBadge') : null);
 async function recordShot(c, d, { source, key = null, at = Date.now(), visitIndex = null, truth: gt = null }) {
   const id = uid();
   const imgKey = `ov-${id}`;
@@ -331,12 +359,12 @@ function render() {
   ({ measure: renderMeasure, analyze: renderAnalyze, result: renderResult, cracks: renderCracks, crack: renderCrack, shared: renderShared })[S.view]?.();
 }
 function refreshChrome() {
-  const n = tracked().filter((c) => !c.example).length;
+  const n = tracked().filter((c) => !c.demo).length;
   const b = $('[data-count="cracks"]'); if (b) { b.textContent = n || ''; b.hidden = !n; }
 }
 function back() {
   if (S.view === 'result' || S.view === 'shared') return go(S.view === 'result' && crackById(S.crackId)?.tracked ? `crack/${S.crackId}` : 'cracks');
-  if (S.view === 'analyze') return go(S.run?.mode === 'own' && !crackById(S.run.crackId)?.tracked ? 'measure' : S.run?.mode === 'example' ? 'measure' : 'cracks');
+  if (S.view === 'analyze') return go(S.run?.mode === 'own' && !crackById(S.run.crackId)?.tracked ? 'measure' : S.run?.mode === 'example' || S.run?.mode === 'sim' ? 'measure' : 'cracks');
   return go('cracks');
 }
 
@@ -398,12 +426,12 @@ function renderAnalyze() {
   const root = $('#view-analyze'); const R = S.run;
   if (!R) return go('measure');
   root.textContent = '';
-  const c = crackById(R.crackId); const ex = R.mode === 'example';
+  const c = crackById(R.crackId); const ex = R.mode === 'example'; const sim = R.mode === 'sim'; const badge = badgeOf(c);
   const vNow = R.phase === 'done' ? verdict(R.shot, c) : null;
   const head = h('div', { class: 'an-head' }, h('h1', { class: 'title' }, R.phase === 'measuring' ? t('aMeasuring') : R.phase === 'error' ? t('aStopped') : vNow && vNow.kind === 'retake' ? t('aRetake') : t('aDone')));
-  if (ex) head.append(h('span', { class: 'badge-example' }, t('exampleBadge')));
+  if (badge) head.append(h('span', { class: 'badge-example' }, badge));
   root.append(head);
-  if (ex) {
+  if (sim) {
     const strip = h('ol', { class: 'ex-strip', 'aria-label': t('exStripAria') });
     STEPS.forEach((st, i) => strip.append(h('li', { class: i < R.step || (i === R.step && R.phase === 'done') ? 'is-done' : i === R.step ? 'is-now' : '' },
       h('span', { class: 'ex-strip__n' }, String(i + 1)), h('span', null, t(`ex${i + 1}`)))));
@@ -413,11 +441,11 @@ function renderAnalyze() {
   const img = h('img', { alt: R.phase === 'done' ? t('overlayAlt') : t('photoAlt') });
   if (R.phase === 'done' && R.result) img.src = `data:image/jpeg;base64,${R.result.overlay_jpeg_b64}`; else if (R.photo) img.src = R.photo;
   frame.append(img, h('span', { class: 'scan', 'aria-hidden': 'true' }));
-  if (ex) frame.append(h('span', { class: 'photo__badge' }, t('exampleBadge')));
+  if (badge) frame.append(h('span', { class: 'photo__badge' }, badge));
   root.append(frame);
   const list = h('ul', { class: 'ticks', 'aria-live': 'polite' });
   if (R.phase === 'measuring') {
-    [t('pCard'), t('pStraight'), t('pSharp'), t('pTraced'), t('pWidth')].concat(ex && STEPS[R.step].previous ? [t('pCompared')] : []).forEach((l, i) =>
+    [t('pCard'), t('pStraight'), t('pSharp'), t('pTraced'), t('pWidth')].concat(sim && STEPS[R.step].previous ? [t('pCompared')] : []).forEach((l, i) =>
       list.append(h('li', { class: 'is-wait', style: `--i:${i}` }, h('span', { class: 'tick' }), h('span', null, l))));
     root.append(h('p', { class: 'muted center' }, R.uploading ? t('uploading') : warm ? t('aWait') : t('aWaitCold')));
   } else if (R.phase === 'done') {
@@ -428,19 +456,19 @@ function renderAnalyze() {
   const acts = h('div', { class: 'cta' });
   if (R.phase === 'error') {
     const e = R.error;
-    const msg = e.code === 'daily_limit' || e.code === 'visitor_limit' ? e.message : e.code === 'image_unavailable' ? t('errExpired') : e.code === 'image_too_small' ? t('errSmall') : e.code === 'not_an_image' ? t('errNotImage') : t('errGeneric');
+    const msg = !navigator.onLine || e.name === 'TypeError' ? t('errOffline') : e.code === 'daily_limit' || e.code === 'visitor_limit' ? e.message : e.code === 'image_unavailable' ? t('errExpired') : e.code === 'image_too_small' ? t('errSmall') : e.code === 'not_an_image' ? t('errNotImage') : t('errGeneric');
     root.append(h('div', { class: 'note note--watch', role: 'alert' }, h('strong', null, t('errTitle')), h('p', null, msg)));
-    acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (ex ? runExampleStep(R.step) : R.file ? measureOwn(R.file) : pickFile(R.crackId)) }, icon('retry'), h('span', null, t('tryAgain'))));
+    acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (sim ? runSimStep(R.step) : ex ? startExample() : R.file ? measureOwn(R.file) : pickFile(R.crackId)) }, icon('retry'), h('span', null, t('tryAgain'))));
   }
   if (R.phase === 'done') {
     const v = verdict(R.shot, c);
     if (v.kind === 'retake') {
       root.append(h('div', { class: 'note note--watch' }, h('strong', null, t('retakeAsk')), h('p', null, h('b', null, v.title), ' ', v.text)));
-      if (ex) acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runExampleStep(R.step + 1) }, icon('camera'), h('span', null, t('exRetaken'))));
+      if (sim) acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runSimStep(R.step + 1) }, icon('camera'), h('span', null, t('exRetaken'))));
       else acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => pickFile(c.id) }, icon('camera'), h('span', null, t('takeAnother'))));
-    } else if (ex && R.step === 2) {
+    } else if (sim && R.step === 2) {
       root.append(h('div', { class: 'note' }, h('strong', null, t('ex3Note')), h('p', null, t('ex3NoteText', { v: Wt(R.shot.cracks[0].width_mm.max) }))));
-      acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runExampleStep(3) }, h('span', null, t('exLater')), icon('chev-r')));
+      acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runSimStep(3) }, h('span', null, t('exLater')), icon('chev-r')));
     } else {
       acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => go(`result/${c.id}/${R.shot.id}`) }, h('span', null, t('seeResult')), icon('chev-r')));
     }
@@ -454,7 +482,7 @@ function renderResult() {
   const c = crackById(S.crackId); const sh = c && (findShot(c, S.shotId) || lastShot(c));
   if (!sh) return go('measure');
   const v = verdict(sh, c); const cr = sh.cracks && sh.cracks[0];
-  if (c.example) root.append(h('span', { class: 'badge-example' }, t('exampleBadge')));
+  if (badgeOf(c)) root.append(h('span', { class: 'badge-example' }, badgeOf(c)));
   const frame = h('div', { class: `photo ${sh.cu ? 'photo--wide' : ''}` });
   const im = h('img', { alt: t('overlayAlt'), class: sh.cu ? 'is-cover' : '' }); setImg(im, sh.cu || sh.img); frame.append(im);
   root.append(frame, h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend')));
@@ -468,22 +496,21 @@ function renderResult() {
       h('div', { class: 'tile fact' }, h('span', null, t('typical')), h('strong', null, Wt(cr.width_mm.median))),
       cmp ? h('div', { class: 'tile fact' }, h('span', null, t('sinceLast')), h('strong', { class: cmp.width_delta_mm.median >= settings.wideningAlert ? 'is-act' : '' }, Wt(cmp.width_delta_mm.median, { sign: true })))
         : h('div', { class: 'tile fact' }, h('span', null, t('measuredIn')), h('strong', null, `${num((sh.timings?.total_ms || 0) / 1000, 1)} s`))));
-    if (sh.truth) root.append(h('p', { class: 'fine' }, t('truthLine', { v: Wt(sh.truth.true_width_mm.max) })));
   }
   const acts = h('div', { class: 'cta' });
-  if (v.kind === 'retake') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, t('takeAnother'))));
+  if (v.kind === 'retake') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, t('takeAnother'))));
   else if (!c.tracked) {
     acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openTrack(c) }, icon('plus'), h('span', null, t('trackCta'))));
-    acts.append(h('button', { class: 'btn btn--soft', type: 'button', disabled: !tracked().some((x) => !x.example), onclick: () => openCompare(c) }, h('span', null, t('compareCta'))));
-    if (!tracked().some((x) => !x.example)) acts.append(h('p', { class: 'fine center' }, t('compareHint')));
+    acts.append(h('button', { class: 'btn btn--soft', type: 'button', disabled: !tracked().some((x) => !x.demo), onclick: () => openCompare(c) }, h('span', null, t('compareCta'))));
+    if (!tracked().some((x) => !x.demo)) acts.append(h('p', { class: 'fine center' }, t('compareHint')));
   } else {
     if (sh.ticket && sh.ticket.status === 'pending_human_approval') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openAlert(c, sh) }, icon('bell'), h('span', null, t('alertCta'))));
-    acts.append(h('button', { class: `btn ${sh.ticket && sh.ticket.status === 'pending_human_approval' ? 'btn--soft' : 'btn--primary'}`, type: 'button', onclick: () => go(`crack/${c.id}`) }, h('span', null, c.example ? t('openExample') : t('openCrack')), icon('chev-r')));
+    acts.append(h('button', { class: `btn ${sh.ticket && sh.ticket.status === 'pending_human_approval' ? 'btn--soft' : 'btn--primary'}`, type: 'button', onclick: () => go(`crack/${c.id}`) }, h('span', null, c.demo ? t('openExample') : t('openCrack')), icon('chev-r')));
   }
   root.append(acts);
-  root.append(howMeasured(sh));
+  root.append(howMeasured(sh, c));
 }
-function howMeasured(sh) {
+function howMeasured(sh, c) {
   const d = h('details', { class: 'tile more' }, h('summary', null, h('span', null, t('howMeasured')), icon('chev-d')));
   const ul = h('ul', { class: 'more__list' });
   (sh.trace || []).forEach((x) => ul.append(h('li', null, h('code', null, x.action.name), h('span', null, ` · ${x.action.planner && x.action.planner.includes('nova') ? 'Amazon Nova 2 Lite' : t('byRules')} · ${num(x.latency_ms || 0, 0)} ms`))));
@@ -491,6 +518,8 @@ function howMeasured(sh) {
   d.append(h('p', null, t('howMeasuredText')), ul,
     h('p', { class: 'fine' }, t('techLine', { b: num(q.blur_sigma_px, 2), ppm: num(q.card_px_per_mm, 1), ms: sh.timings?.total_ms ?? '—', cost: num(sh.llm?.cost_usd || 0, 4) })),
     h('p', { class: 'fine' }, t('scaleNote')));
+  if (c && c.real) d.append(h('p', { class: 'fine' }, t('provReal')));
+  if (sh.truth) d.append(h('p', { class: 'fine' }, t('provSim', { v: Wt(sh.truth.true_width_mm.max), m: sh.cracks?.[0] ? Wt(sh.cracks[0].width_mm.max) : '—' })));
   return d;
 }
 
@@ -508,17 +537,19 @@ function renderCracks() {
   if (!list.length) {
     root.append(h('div', { class: 'empty' }, stepArt('place'), h('h2', null, t('emptyTitle')), h('p', null, t('emptyText')),
       h('div', { class: 'cta' }, h('button', { class: 'btn btn--primary', type: 'button', onclick: () => pickFile() }, icon('camera'), h('span', null, t('measureCta'))),
-        h('button', { class: 'btn btn--soft', type: 'button', onclick: () => startExample() }, t('exampleCta')))));
+        h('button', { class: 'btn btn--soft', type: 'button', onclick: () => startExample() }, t('exampleCta'))),
+      h('button', { class: 'link-btn', type: 'button', onclick: () => startSim() }, icon('play'), h('span', null, t('simCta')))));
     return;
   }
   const ul = h('ul', { class: 'cards' });
   list.forEach((c) => {
     const ser = series(c); const last = ser[ser.length - 1];
     ul.append(h('li', null, h('a', { class: 'tile crack-card', href: `#crack/${c.id}` },
-      h('div', { class: 'crack-card__top' }, thumb(c), h('div', { class: 'crack-card__id' }, h('strong', null, c.name), h('span', null, c.place || fmtDate(c.createdAt))), c.example ? h('span', { class: 'badge-example' }, t('exampleBadge')) : null),
+      h('div', { class: 'crack-card__top' }, thumb(c), h('div', { class: 'crack-card__id' }, h('strong', null, c.name), h('span', null, c.place || fmtDate(c.createdAt))), badgeOf(c) ? h('span', { class: 'badge-example' }, badgeOf(c)) : null),
       h('div', { class: 'crack-card__bottom' }, last ? hero(last.max, { cls: 'hero--md' }) : h('span', { class: 'muted' }, t('trNoPhoto')), chip(trendOf(c))))));
   });
   root.append(ul, h('div', { class: 'cta' }, h('button', { class: 'btn btn--soft', type: 'button', onclick: () => pickFile() }, icon('plus'), h('span', null, t('addCrack')))));
+  if (!crackById(SIM_ID)) root.append(h('div', { class: 'row-actions' }, h('button', { class: 'link-btn', type: 'button', onclick: () => startSim() }, icon('play'), h('span', null, t('simCta')))));
 }
 function miniChart(ser) {
   const W0 = 340; const H0 = 120; const pad = 12;
@@ -548,7 +579,7 @@ function renderCrack() {
   const root = $('#view-crack'); root.textContent = '';
   const c = crackById(S.crackId); if (!c) return go('cracks');
   const ser = series(c); const last = ser[ser.length - 1]; const ls = lastShot(c);
-  root.append(h('div', { class: 'crack-head' }, h('div', null, h('h1', { class: 'title' }, c.name), h('p', { class: 'muted' }, c.place || '')), c.example ? h('span', { class: 'badge-example' }, t('exampleBadge')) : null));
+  root.append(h('div', { class: 'crack-head' }, h('div', null, h('h1', { class: 'title' }, c.name), h('p', { class: 'muted' }, c.place || '')), badgeOf(c) ? h('span', { class: 'badge-example' }, badgeOf(c)) : null));
   if (last) root.append(hero(last.max, { unc: 2 * last.unc }), h('div', { class: 'chips' }, chip(trendOf(c))));
   const v = ls && verdict(ls, c);
   if (v) root.append(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
@@ -568,7 +599,7 @@ function renderCrack() {
   root.append(h('section', { class: 'block' }, h('h2', { class: 'section-title' }, t('visits')), visits));
   const pend = allShots(c).find((x) => x.ticket && x.ticket.status === 'pending_human_approval');
   root.append(h('div', { class: 'cta' },
-    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, c.example ? t('replayExample') : t('measureAgain'))),
+    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, c.demo ? t('replayExample') : t('measureAgain'))),
     h('button', { class: 'btn btn--soft', type: 'button', onclick: () => savePdf(c) }, icon('doc'), h('span', null, t('reportCta'))),
     h('button', { class: `btn btn--soft ${pend ? 'is-act' : ''}`, type: 'button', onclick: () => openAlert(c, pend || ls) }, icon('bell'), h('span', null, t('alertCta')))));
   root.append(h('div', { class: 'row-actions' },
@@ -593,17 +624,35 @@ function openTrack(c) {
 }
 function openCompare(c) {
   const b = $('#sheetBody'); b.textContent = ''; $('#sheetTitle').textContent = t('compareCta');
-  const own = tracked().filter((x) => !x.example);
+  const own = tracked().filter((x) => !x.demo);
   b.append(h('p', null, t('compareText')));
   const ul = h('ul', { class: 'pick' });
-  own.forEach((x) => ul.append(h('li', null, h('button', { class: 'tile pick__row', type: 'button', onclick: async () => {
-    // this photo becomes the newest visit of the chosen crack
-    const sh = lastShot(c); if (!sh) return;
-    x.visits.push({ id: uid(), at: sh.at, shots: [sh] }); data.cracks = data.cracks.filter((y) => y.id !== c.id); save(); closeSheet('sheet');
-    go(`crack/${x.id}`); toast({ title: t('compared'), tone: 'ok' });
-  } }, thumb(x), h('span', null, h('strong', null, x.name), h('small', null, x.place || '')), icon('chev-r')))));
+  own.forEach((x) => ul.append(h('li', null, h('button', { class: 'tile pick__row', type: 'button', onclick: () => attachTo(c, x) },
+    thumb(x), h('span', null, h('strong', null, x.name), h('small', null, x.place || '')), icon('chev-r')))));
   b.append(ul);
   openSheet('sheet');
+}
+// this photo joins a tracked crack: compared on the server when both photos are still there (< 24 h), else on the stored numbers
+async function attachTo(draft, x) {
+  const sh = lastShot(draft); if (!sh || inflight) return;
+  closeSheet('sheet');
+  const prev = [...allShots(x)].reverse().find((y) => isMeasured(y) && y.key && Date.now() - y.at < 23 * 3600000);
+  if (sh.key && prev) {
+    inflight = true;
+    S.run = { mode: 'own', crackId: x.id, phase: 'measuring', photo: await idb.get(sh.img) };
+    go('analyze');
+    try {
+      const d = await api('/api/inspect', { image: { key: sh.key }, previous: { key: prev.key }, retakes: 0 });
+      const nsh = await recordShot(x, d, { source: 'upload', key: sh.key });
+      await dropImages(draft); data.cracks = data.cracks.filter((y) => y.id !== draft.id); save();
+      S.run = { ...S.run, phase: 'done', result: d, shot: nsh };
+    } catch (e) { S.run = { ...S.run, phase: 'error', error: e }; }
+    inflight = false;
+    if (S.view === 'analyze') renderAnalyze();
+    return;
+  }
+  x.visits.push({ id: uid(), at: sh.at, shots: [sh] }); data.cracks = data.cracks.filter((y) => y.id !== draft.id); save();
+  go(`crack/${x.id}`); toast({ title: t('compared'), tone: 'ok' });
 }
 function openAlert(c, sh) {
   const b = $('#sheetBody'); b.textContent = ''; $('#sheetTitle').textContent = t('alertCta');
@@ -643,7 +692,9 @@ function openSettings() {
 }
 function setLang(v) {
   lang = T[v] ? v : 'en'; store.set('cw-lang', lang);
-  const ex = crackById(EX_ID); if (ex) { ex.name = t('exName'); ex.place = t('exPlace'); save(); }
+  const ex = crackById(EX_ID); if (ex) { ex.name = t('exName'); ex.place = t('exPlace'); }
+  const sm = crackById(SIM_ID); if (sm) { sm.name = t('simName'); sm.place = t('simPlace'); }
+  save();
   applyLang(); visit('lang');
 }
 function applyLang() {
