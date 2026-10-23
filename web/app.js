@@ -348,7 +348,7 @@ function renderWalls() {
   } else {
     listSec.append(h('div', { class: 'ui-surface empty-card' }, h('div', { class: 'ui-empty' },
       h('span', { class: 'ui-empty__icon' }, icon('crack')), h('h3', null, t('emptyTitle')), h('p', null, t('emptyBody')),
-      h('button', { class: 'ui-button ui-button--tinted', type: 'button', onclick: () => startDemo() }, t('runDemo')))));
+      )));
   }
   grid.append(listSec);
 
@@ -600,15 +600,22 @@ function nextDemoStep(c) {
   const i = STEPS.findIndex((st) => !ids.includes(st.id));
   return i < 0 ? null : i;
 }
+let inflight = false;   // one inspection at a time (double tap, double click)
+const isBusy = () => inflight;
 async function startDemo(step = 0) {
+  if (inflight) return;
+  inflight = true;
   if (step == null) step = 0;
   if (step === 0) await resetDemo();
   ensureDemo();
   S.run = { mode: 'demo', crackId: DEMO_ID, step, phase: 'idle' };
   go('inspect');
+  inflight = false;
   runStep(step);
 }
 async function runStep(i) {
+  if (inflight) return;
+  inflight = true;
   const st = STEPS[i]; const c = ensureDemo();
   S.run = { mode: 'demo', crackId: c.id, step: i, phase: 'measuring', photo: `/samples/${st.id}.jpg`, t0: Date.now() };
   renderInspect();
@@ -623,6 +630,7 @@ async function runStep(i) {
   } catch (e) {
     S.run = { ...S.run, phase: 'error', error: e };
   }
+  inflight = false;
   renderInspect();
 }
 async function recordShot(c, d, { source, key = null, at = Date.now(), visitIndex = null, truth: gt = null }) {
@@ -793,7 +801,9 @@ function newOwnCrack() {
   return c;
 }
 async function measureOwn(crackId, file) {
+  if (inflight) return;
   if (file.size > 15 * 1024 * 1024) { toast({ title: t('tooBig'), tone: 'critical' }); return; }
+  inflight = true;
   const c = crackId && crackId !== 'new' ? crackById(crackId) : newOwnCrack();
   const photo = URL.createObjectURL(file);
   S.run = { mode: 'own', crackId: c.id, phase: 'measuring', uploading: true, photo, file };
@@ -820,6 +830,7 @@ async function measureOwn(crackId, file) {
   } catch (e) {
     S.run = { ...S.run, phase: 'error', error: e, uploading: false };
   }
+  inflight = false;
   if (S.view === 'inspect') renderInspect();
 }
 

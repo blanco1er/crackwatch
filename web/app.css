@@ -352,3 +352,12 @@ button.ui-nav-item { font: inherit; font-size: var(--text-callout); }
 .ui-stat__delta { white-space: normal; }
 .tk-ba { margin-top: 18px; }
 .tk-ba h4 { margin: 0 0 4px; }
+
+/* ---------- audit: touch targets >= 44 pt on touch screens, tab contrast ---------- */
+@media (pointer: coarse) {
+  .ui-button, .ui-button--sm { min-height: 44px; }
+  .linkish { display: inline-flex; align-items: center; min-height: 44px; }
+  .lang-switch .ui-icon-button { width: 44px; min-width: 44px; height: 44px; }
+  .ui-tabs-top a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+.ui-tabs-top a[aria-current="page"] { color: light-dark(#0055B3, #5CB8FF); }
