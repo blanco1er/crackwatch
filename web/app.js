@@ -167,8 +167,8 @@ function verdict(sh, c) {
   }
   if (!cr) return { tone: 'ok', kind: 'none', title: t('vNoneTitle'), text: t('vNoneText') };
   const cmp = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
-  const grew = cmp && (cmp.significant_widening || cmp.width_delta_mm.median >= settings.wideningAlert);
-  if (grew || (sh.ticket && cmp)) {
+  const grew = cmp && cmp.significant_widening && cmp.width_delta_mm.median >= settings.wideningAlert;
+  if (grew) {
     const since = c && c.visits[0] ? fmtDate(c.visits[0].at, { day: 'numeric', month: 'short' }) : '';
     return { tone: 'act', kind: 'growing', title: t('vGrowing', { d: Wt(cmp.width_delta_mm.median, { sign: true }), since }), text: t('vGrowingText') };
   }
