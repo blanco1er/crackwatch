@@ -127,6 +127,31 @@ def tilt_from_homography(H, shape, focal_factor=0.85):
     return float(math.degrees(math.acos(min(1.0, abs(nrm[2]) / np.linalg.norm(nrm)))))
 
 
+def camera_center_board(H, shape, focal_factor=0.85):
+    """Camera centre in the board frame (mm; |z| = distance to the wall plane), with the same pinhole
+    assumption as tilt_from_homography (f = focal_factor * max(w, h), centred principal point)."""
+    h, w = shape[:2]
+    f = focal_factor * max(w, h)
+    K = np.array([[f, 0, w / 2 - 0.5], [0, f, h / 2 - 0.5], [0, 0, 1]])
+    M = np.linalg.inv(K) @ H
+    k = 1.0 / np.linalg.norm(M[:, 0])
+    r1, r2, t = M[:, 0] * k, M[:, 1] * k, M[:, 2] * k
+    Rm = np.column_stack([r1, r2, np.cross(r1, r2)])
+    return -Rm.T @ t
+
+
+def view_angle_across_deg(pts_mm, cam_c):
+    """Angle between the line of sight and the wall normal, measured in the plane perpendicular to the
+    crack (its principal direction). A crack is a 3-D gap: seen at an angle across it, one lip hides part
+    of the dark interior, so the apparent width shrinks by about depth x tan(angle)."""
+    c = pts_mm.mean(0)
+    d = pts_mm - c
+    _, vec = np.linalg.eigh(d.T @ d)
+    n = vec[:, 0]                                    # normal to the principal direction
+    v = cam_c[:2] - c
+    return float(math.degrees(math.atan2(float(v @ n), abs(float(cam_c[2])))))
+
+
 # ============================================================== rectification
 @dataclass
 class Rectified:
@@ -203,7 +228,7 @@ def _fill_masked(img, mask, sigma):
     return out
 
 
-def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2)):
+def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2, 3.4)):
     """Multi-scale ridge strength for bright ridges in `rel` (= relative darkness).
     Returns strength, best sigma (px) and unit normal (nx, ny) of the ridge."""
     best = np.zeros_like(rel)
@@ -351,6 +376,7 @@ class SegParams:
     k_high: float = 7.0          # strong threshold = median + k * MAD of ridge response
     k_low: float = 3.5
     rel_min: float = 0.06        # strong seeds must be >= 6 % darker than their background
+    rel_weak: float = 0.03       # weak (hysteresis) pixels must be >= 3 % darker than their background
     min_contrast: float = 0.18   # median relative darkness along the skeleton
     min_resp_ratio: float = 1.0  # ridge response along the skeleton (percentile below) / strong threshold
     resp_percentile: float = 50.0  # 50 = median of the ridge response along the (pruned) skeleton
@@ -385,8 +411,14 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
     G = _fill_masked(rect.gray, rect.valid, 3 * R)
     bg = background(G, R, p.bg_mm)
     rel_s = (bg - G) / np.maximum(bg, 1e-3)              # signed relative darkness
-    rel = np.clip(rel_s, 0, 1)
     resp, best_s, nx, ny = hessian_ridge(rel_s, R)
+    # Darkness tests (weak-mask gate, strong seeds, contrast filter) read the background as the
+    # brighter of the bg_mm and 2 x bg_mm medians: inside a crack wider than ~bg_mm/2 the bg_mm
+    # median is itself dark and would call the crack's centre "not darker than its background".
+    # The ridge response and its noise thresholds keep the bg_mm background.
+    bg_dark = np.maximum(bg, background(G, R, 2 * p.bg_mm))
+    rel_d = (bg_dark - G) / np.maximum(bg_dark, 1e-3)
+    rel = np.clip(rel_d, 0, 1)
     search = cv2.erode(rect.search.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=max(1, int(1.5 * R))) > 0
     vals = resp[search]
     if vals.size == 0:
@@ -394,7 +426,12 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
     med = float(np.median(vals))
     mad = float(np.median(np.abs(vals - med))) + 1e-9
     hi, lo = med + p.k_high * mad, med + p.k_low * mad
-    weak = ((resp > lo) & search).astype(np.uint8)
+    # The ridge response at the large scales spreads several mm beyond a wide dark line; on its own
+    # it bridges two neighbouring dark features through the brighter gap between them (and the merged
+    # blob is then judged as a whole). A crack pixel is darker than its background, so the weak mask
+    # also requires a (lightly smoothed) relative darkness of at least `rel_weak`.
+    rel_w = cv2.GaussianBlur(rel_d, (0, 0), max(0.7, 0.1 * R))
+    weak = ((resp > lo) & (rel_w > p.rel_weak) & search).astype(np.uint8)
     gk = max(3, int(p.gap_mm * R) | 1)
     weak = cv2.morphologyEx(weak, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gk, gk))) & search
     strong = (resp > hi) & (rel > p.rel_min) & search
@@ -415,6 +452,9 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
             sk = prune_spurs(sk, resp[y:y + h, x:x + w], hi, R, p.prune_short_mm, p.prune_weak_mm,
                              scale=best_s[y:y + h, x:x + w])
         ys, xs = np.nonzero(sk)
+        if len(xs) < 3:                  # thinning can erase a tiny blob entirely
+            rejected.append({"label": int(L), "reject": "short", "length_mm": len(xs) * 1.08 / R})
+            continue
         pts = np.column_stack([xs + x, ys + y]).astype(np.float64)
         length_mm = len(pts) * 1.08 / R
         width_mm = float(np.median(best_s[pts[:, 1].astype(int), pts[:, 0].astype(int)])) * 2.5 / R
@@ -486,6 +526,24 @@ def blur_tables():
     return _TABLES
 
 
+def _half_max_edges(d, m, depth, t, step):
+    """Sub-sample positions (t units) where the relative-darkness profile `d` falls to half of
+    `depth` on each side of its peak index `m`; None if a side never falls (profile too short)."""
+    half = depth / 2
+    n_s = len(d)
+    l = m
+    while l > 0 and d[l] > half:
+        l -= 1
+    r = m
+    while r < n_s - 1 and d[r] > half:
+        r += 1
+    if l == 0 or r == n_s - 1:
+        return None
+    tl = t[l] + (half - d[l]) / (d[l + 1] - d[l] + 1e-12) * step
+    tr = t[r - 1] + (d[r - 1] - half) / (d[r - 1] - d[r] + 1e-12) * step
+    return float(tl), float(tr)
+
+
 def _junction_mask(skel):
     k = np.ones((3, 3), np.float32)
     k[1, 1] = 0
@@ -503,6 +561,8 @@ class WidthParams:
     agree_rel: float = 0.35        # max relative disagreement FWHM vs area on resolved points
     outlier_factor: float = 2.0    # wide-and-shallow outliers (stains under a thin crack)
     outlier_depth: float = 0.7
+    flank_mm: float = 1.0          # local background band on each side of the crack (see measure_widths)
+    flank_iters: int = 2
 
 
 def normal_sigma_mm(H_img_from_board, pts_mm, normals):
@@ -555,21 +615,37 @@ def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_b
         A = np.full(n, np.nan)
         ok = np.zeros(n, bool)
         for i in range(n):
-            d = drel[i]
-            m = imin[i]
             if D[i] <= 0.02:
                 continue
-            half = D[i] / 2
-            l = m
-            while l > 0 and d[l] > half:
-                l -= 1
-            r = m
-            while r < n_s - 1 and d[r] > half:
-                r += 1
-            if l == 0 or r == n_s - 1:
+            edges = _half_max_edges(drel[i], imin[i], D[i], t, wp.step_px)
+            if edges is None:
                 continue
-            tl = t[l] + (half - d[l]) / (d[l + 1] - d[l] + 1e-12) * wp.step_px
-            tr = t[r - 1] + (d[r - 1] - half) / (d[r - 1] - d[r] + 1e-12) * wp.step_px
+            tl, tr = edges
+            # Local background from the flanks: the first pass reads it at the far ends of the
+            # profile, which can fall on a neighbouring dark feature (another crack, a joint, the
+            # next bar of a test chart) and then narrows the measured width. Re-read it in a band of
+            # `flank_mm` on each side, just outside the blurred edges (guard = 2.5 sigma), and redo
+            # the half-maximum crossing with that baseline.
+            p_i = prof[i]
+            for _ in range(wp.flank_iters):
+                g = _AREA_K * sig[i]
+                fl = (t >= tl - g - wp.flank_mm * R) & (t <= tl - g)
+                fr = (t >= tr + g) & (t <= tr + g + wp.flank_mm * R)
+                if fl.sum() < 3 or fr.sum() < 3:
+                    break
+                bl_i, br_i = float(np.median(p_i[fl])), float(np.median(p_i[fr]))
+                xl, xr = float(t[fl].mean()), float(t[fr].mean())
+                base = bl_i + (br_i - bl_i) * np.clip((t - xl) / max(xr - xl, 1e-6), 0.0, 1.0)
+                d_i = (base - p_i) / np.maximum(base, 1e-3)
+                m_i = c0 - win + int(np.argmax(d_i[c0 - win:c0 + win + 1]))
+                if d_i[m_i] <= 0.02:
+                    break
+                e2 = _half_max_edges(d_i, m_i, d_i[m_i], t, wp.step_px)
+                if e2 is None:
+                    break
+                drel[i], imin[i], D[i] = d_i, m_i, d_i[m_i]
+                tl, tr = e2
+            d = drel[i]
             wf[i] = tr - tl
             c = 0.5 * (tl + tr)
             L = wf[i] / 2 + _AREA_K * sig[i]
@@ -652,7 +728,8 @@ def _local_median(pts, vals, radius):
     return out
 
 
-def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.0, max_window_mm=6.0, max_percentile=95):
+def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.0, max_window_mm=6.0, max_percentile=95,
+              cam_c=None):
     cracks = []
     for i, c in enumerate(comps):
         w = c["width_mm"]
@@ -697,9 +774,49 @@ def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.
             "min_measurable_mm": round(max(1.5 / nat, 1.3 * sig_mm), 3),
             "bbox_board_mm": [round(float(v), 1) for v in (*p.min(0), *p.max(0))],
             "focus_region_board_mm": [round(float(v), 1) for v in (fx0, fy0, fx1, fy1)],
+            "view_angle_across_deg": None if cam_c is None else round(abs(view_angle_across_deg(p, cam_c)), 1),
         })
     cracks.sort(key=lambda d: -d["length_mm"])
     return cracks
+
+
+ZONE_MARGIN_MM = 40.0
+
+
+def zone_summary(rect: Rectified, comps, cracks, card: CardDetection, margin_mm=ZONE_MARGIN_MM, max_window_mm=6.0):
+    """Monitoring zone: the band of `margin_mm` around the card sheet, in board (card) millimetres. The
+    card stays glued between photos, so this is the same piece of wall in every photo of a series,
+    whatever the framing; widths are summarised over the crack points inside it (all cracks)."""
+    x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
+    Z = (x0 - margin_mm, y0 - margin_mm, x1 + margin_mm, y1 + margin_mm)
+    # how much of the zone (outside the masked sheet) this photo can search
+    gx, gy = np.meshgrid(np.arange(Z[0], Z[2], 2.0), np.arange(Z[1], Z[3], 2.0))
+    g = np.column_stack([gx.ravel(), gy.ravel()])
+    g = g[~((g[:, 0] > x0) & (g[:, 0] < x1) & (g[:, 1] > y0) & (g[:, 1] < y1))]
+    uv = np.round(rect.mm_to_px(g)).astype(int)
+    h, w = rect.search.shape
+    inside = (uv[:, 0] >= 0) & (uv[:, 0] < w) & (uv[:, 1] >= 0) & (uv[:, 1] < h)
+    cover = float(np.mean(inside & rect.search[np.clip(uv[:, 1], 0, h - 1), np.clip(uv[:, 0], 0, w - 1)]))
+    out = {"rect_board_mm": [round(v, 1) for v in Z], "margin_mm": margin_mm, "searchable_fraction": round(cover, 2)}
+    P, W, Wm, A = [], [], [], []
+    ang = {c["id"]: c.get("view_angle_across_deg") for c in cracks}
+    for i, c in enumerate(comps):
+        if "width_smooth_mm" not in c:
+            continue
+        p = c["pts_mm"]
+        m = (p[:, 0] > Z[0]) & (p[:, 0] < Z[2]) & (p[:, 1] > Z[1]) & (p[:, 1] < Z[3])
+        if m.sum() < 5:
+            continue
+        P.append(p[m]); W.append(c["width_smooth_mm"][m]); Wm.append(c["width_maxprof_mm"][m])
+        A.append(np.full(m.sum(), np.nan if ang.get(i) is None else ang[i]))
+    if not P:
+        return dict(out, n_points=0)
+    W, Wm, A = np.concatenate(W), np.concatenate(Wm), np.concatenate(A)
+    out.update({"n_points": int(len(W)), "length_mm": round(len(W) * 1.08 / rect.R, 1),
+                "width_mm": {"median": round(float(np.median(W)), 3), "p90": round(float(np.percentile(W, 90)), 3),
+                             "max": round(float(np.percentile(Wm, 95)), 3)},
+                "view_angle_across_deg": None if np.all(np.isnan(A)) else round(float(np.nanmedian(A)), 1)})
+    return out
 
 
 @dataclass
@@ -710,10 +827,11 @@ class MeasureResult:
     cracks: list = field(default_factory=list)
     rejected: list = field(default_factory=list)
     debug: dict = field(default_factory=dict)
+    zone: dict | None = None
 
     def to_json(self):
         return {"status": self.status, "quality": self.quality, "card": self.card,
-                "cracks": self.cracks, "rejected": [{k: v for k, v in r.items() if k != "skeleton_px"} for r in self.rejected]}
+                "cracks": self.cracks, "zone": self.zone, "rejected": [{k: v for k, v in r.items() if k != "skeleton_px"} for r in self.rejected]}
 
 
 def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
@@ -732,8 +850,10 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
     if seg is None:
         return MeasureResult("no_search_area", q, card_info)
     comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board)
-    cracks = summarize(rect, comps, q, card)
-    res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"])
+    cam_c = camera_center_board(card.H_img_from_board, gray.shape)
+    cracks = summarize(rect, comps, q, card, cam_c=cam_c)
+    res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"],
+                        zone=zone_summary(rect, comps, cracks, card))
     if keep_debug:
         res.debug = {"rect": rect, "seg": seg, "comps": comps, "card": card}
     return res

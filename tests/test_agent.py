@@ -20,6 +20,10 @@ def obs(status="ok", q=None, cracks=None):
 
 CMP_GROW = {"status": "ok", "width_delta_mm": {"median": 0.45}, "new_length_mm": 12.0,
             "significant_widening": True, "significant_growth": True}
+# one 10 mm stretch widened by 0.5 mm, the rest unchanged: network median ~0, local test significant
+CMP_LOCAL = {"status": "ok", "width_delta_mm": {"median": 0.01}, "new_length_mm": 0.0,
+             "significant_widening": True, "significant_growth": False, "widening_mm": 0.5,
+             "widening_location_board_mm": [120.0, 40.0], "widening_scope": "window"}
 CMP_STABLE = {"status": "ok", "width_delta_mm": {"median": 0.01}, "new_length_mm": 0.0,
               "significant_widening": False, "significant_growth": False}
 
@@ -29,6 +33,7 @@ SCENARIOS = [
     ("blurred", obs(q={"blur_sigma_px": 3.1}), {}, "request_retake"),
     ("too oblique", obs(q={"tilt_deg_est": 65}), {}, "request_retake"),
     ("retake budget used, still blurred", obs(q={"blur_sigma_px": 3.1}), {"retakes": 2}, "schedule_next_visit"),
+    ("20 deg across the crack, rule off", obs(cracks=[dict(crack(), view_angle_across_deg=20.0)]), {}, "schedule_next_visit"),
     ("thin crack below resolution", obs(cracks=[crack(0.25, 0.2, ppm=4.0)]), {}, "request_closer_photo"),
     ("prior-based depth", obs(cracks=[crack(depth="prior")]), {}, "request_closer_photo"),
     ("no crack, far photo", obs("no_crack_found", q={"card_px_per_mm": 3.0}, cracks=[]), {}, "request_closer_photo"),
@@ -36,6 +41,7 @@ SCENARIOS = [
     ("history -> compare", obs(), {"previous_inspection_id": "insp-001"}, "compare_with_previous"),
     ("fine & stable", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_STABLE}, "schedule_next_visit"),
     ("growth -> ticket", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_GROW}, "propose_ticket"),
+    ("local widening -> ticket", obs(), {"previous_inspection_id": "insp-001", "compared": True, "comparison": CMP_LOCAL}, "propose_ticket"),
     ("wide crack -> ticket", obs(cracks=[crack(2.6, 2.0)]), {}, "propose_ticket"),
     ("near threshold but uncertain", obs(cracks=[crack(1.05, 0.9, unc=0.1)]), {}, "schedule_next_visit"),
     ("step budget", obs(), {"step": 6}, "stop"),
@@ -53,6 +59,13 @@ def test_scenarios():
             assert a.requires_human_approval
     print(f"{ok}/{len(SCENARIOS)} scenarios")
     assert ok == len(SCENARIOS)
+
+
+def test_view_angle_rule():
+    from crackwatch.agent import Policy
+    pol = Policy(max_view_angle_across_deg=10.0)
+    assert decide_next_action(obs(cracks=[dict(crack(), view_angle_across_deg=20.0)]), AgentState("i"), pol).name == "request_retake"
+    assert decide_next_action(obs(cracks=[dict(crack(), view_angle_across_deg=6.0)]), AgentState("i"), pol).name == "schedule_next_visit"
 
 
 def test_loop_trace():
@@ -85,6 +98,7 @@ def test_bedrock_request_shape():
 
 if __name__ == "__main__":
     test_scenarios()
+    test_view_angle_rule()
     test_loop_trace()
     test_bedrock_request_shape()
     print("all agent tests passed")
