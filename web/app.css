@@ -354,7 +354,7 @@ button.ui-nav-item { font: inherit; font-size: var(--text-callout); }
 .tk-ba h4 { margin: 0 0 4px; }
 
 /* ---------- audit: touch targets >= 44 pt on touch screens, tab contrast ---------- */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 699px) {
   .ui-button, .ui-button--sm { min-height: 44px; }
   .linkish { display: inline-flex; align-items: center; min-height: 44px; }
   .lang-switch .ui-icon-button { width: 44px; min-width: 44px; height: 44px; }
