@@ -203,7 +203,7 @@ def _fill_masked(img, mask, sigma):
     return out
 
 
-def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2)):
+def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2, 3.4)):
     """Multi-scale ridge strength for bright ridges in `rel` (= relative darkness).
     Returns strength, best sigma (px) and unit normal (nx, ny) of the ridge."""
     best = np.zeros_like(rel)
@@ -351,6 +351,7 @@ class SegParams:
     k_high: float = 7.0          # strong threshold = median + k * MAD of ridge response
     k_low: float = 3.5
     rel_min: float = 0.06        # strong seeds must be >= 6 % darker than their background
+    rel_weak: float = 0.03       # weak (hysteresis) pixels must be >= 3 % darker than their background
     min_contrast: float = 0.18   # median relative darkness along the skeleton
     min_resp_ratio: float = 1.0  # ridge response along the skeleton (percentile below) / strong threshold
     resp_percentile: float = 50.0  # 50 = median of the ridge response along the (pruned) skeleton
@@ -385,8 +386,14 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
     G = _fill_masked(rect.gray, rect.valid, 3 * R)
     bg = background(G, R, p.bg_mm)
     rel_s = (bg - G) / np.maximum(bg, 1e-3)              # signed relative darkness
-    rel = np.clip(rel_s, 0, 1)
     resp, best_s, nx, ny = hessian_ridge(rel_s, R)
+    # Darkness tests (weak-mask gate, strong seeds, contrast filter) read the background as the
+    # brighter of the bg_mm and 2 x bg_mm medians: inside a crack wider than ~bg_mm/2 the bg_mm
+    # median is itself dark and would call the crack's centre "not darker than its background".
+    # The ridge response and its noise thresholds keep the bg_mm background.
+    bg_dark = np.maximum(bg, background(G, R, 2 * p.bg_mm))
+    rel_d = (bg_dark - G) / np.maximum(bg_dark, 1e-3)
+    rel = np.clip(rel_d, 0, 1)
     search = cv2.erode(rect.search.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=max(1, int(1.5 * R))) > 0
     vals = resp[search]
     if vals.size == 0:
@@ -394,7 +401,12 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
     med = float(np.median(vals))
     mad = float(np.median(np.abs(vals - med))) + 1e-9
     hi, lo = med + p.k_high * mad, med + p.k_low * mad
-    weak = ((resp > lo) & search).astype(np.uint8)
+    # The ridge response at the large scales spreads several mm beyond a wide dark line; on its own
+    # it bridges two neighbouring dark features through the brighter gap between them (and the merged
+    # blob is then judged as a whole). A crack pixel is darker than its background, so the weak mask
+    # also requires a (lightly smoothed) relative darkness of at least `rel_weak`.
+    rel_w = cv2.GaussianBlur(rel_d, (0, 0), max(0.7, 0.1 * R))
+    weak = ((resp > lo) & (rel_w > p.rel_weak) & search).astype(np.uint8)
     gk = max(3, int(p.gap_mm * R) | 1)
     weak = cv2.morphologyEx(weak, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gk, gk))) & search
     strong = (resp > hi) & (rel > p.rel_min) & search
@@ -415,6 +427,9 @@ def segment(rect: Rectified, p: SegParams = SegParams()):
             sk = prune_spurs(sk, resp[y:y + h, x:x + w], hi, R, p.prune_short_mm, p.prune_weak_mm,
                              scale=best_s[y:y + h, x:x + w])
         ys, xs = np.nonzero(sk)
+        if len(xs) < 3:                  # thinning can erase a tiny blob entirely
+            rejected.append({"label": int(L), "reject": "short", "length_mm": len(xs) * 1.08 / R})
+            continue
         pts = np.column_stack([xs + x, ys + y]).astype(np.float64)
         length_mm = len(pts) * 1.08 / R
         width_mm = float(np.median(best_s[pts[:, 1].astype(int), pts[:, 0].astype(int)])) * 2.5 / R
@@ -486,6 +501,24 @@ def blur_tables():
     return _TABLES
 
 
+def _half_max_edges(d, m, depth, t, step):
+    """Sub-sample positions (t units) where the relative-darkness profile `d` falls to half of
+    `depth` on each side of its peak index `m`; None if a side never falls (profile too short)."""
+    half = depth / 2
+    n_s = len(d)
+    l = m
+    while l > 0 and d[l] > half:
+        l -= 1
+    r = m
+    while r < n_s - 1 and d[r] > half:
+        r += 1
+    if l == 0 or r == n_s - 1:
+        return None
+    tl = t[l] + (half - d[l]) / (d[l + 1] - d[l] + 1e-12) * step
+    tr = t[r - 1] + (d[r - 1] - half) / (d[r - 1] - d[r] + 1e-12) * step
+    return float(tl), float(tr)
+
+
 def _junction_mask(skel):
     k = np.ones((3, 3), np.float32)
     k[1, 1] = 0
@@ -503,6 +536,8 @@ class WidthParams:
     agree_rel: float = 0.35        # max relative disagreement FWHM vs area on resolved points
     outlier_factor: float = 2.0    # wide-and-shallow outliers (stains under a thin crack)
     outlier_depth: float = 0.7
+    flank_mm: float = 1.0          # local background band on each side of the crack (see measure_widths)
+    flank_iters: int = 2
 
 
 def normal_sigma_mm(H_img_from_board, pts_mm, normals):
@@ -555,21 +590,37 @@ def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_b
         A = np.full(n, np.nan)
         ok = np.zeros(n, bool)
         for i in range(n):
-            d = drel[i]
-            m = imin[i]
             if D[i] <= 0.02:
                 continue
-            half = D[i] / 2
-            l = m
-            while l > 0 and d[l] > half:
-                l -= 1
-            r = m
-            while r < n_s - 1 and d[r] > half:
-                r += 1
-            if l == 0 or r == n_s - 1:
+            edges = _half_max_edges(drel[i], imin[i], D[i], t, wp.step_px)
+            if edges is None:
                 continue
-            tl = t[l] + (half - d[l]) / (d[l + 1] - d[l] + 1e-12) * wp.step_px
-            tr = t[r - 1] + (d[r - 1] - half) / (d[r - 1] - d[r] + 1e-12) * wp.step_px
+            tl, tr = edges
+            # Local background from the flanks: the first pass reads it at the far ends of the
+            # profile, which can fall on a neighbouring dark feature (another crack, a joint, the
+            # next bar of a test chart) and then narrows the measured width. Re-read it in a band of
+            # `flank_mm` on each side, just outside the blurred edges (guard = 2.5 sigma), and redo
+            # the half-maximum crossing with that baseline.
+            p_i = prof[i]
+            for _ in range(wp.flank_iters):
+                g = _AREA_K * sig[i]
+                fl = (t >= tl - g - wp.flank_mm * R) & (t <= tl - g)
+                fr = (t >= tr + g) & (t <= tr + g + wp.flank_mm * R)
+                if fl.sum() < 3 or fr.sum() < 3:
+                    break
+                bl_i, br_i = float(np.median(p_i[fl])), float(np.median(p_i[fr]))
+                xl, xr = float(t[fl].mean()), float(t[fr].mean())
+                base = bl_i + (br_i - bl_i) * np.clip((t - xl) / max(xr - xl, 1e-6), 0.0, 1.0)
+                d_i = (base - p_i) / np.maximum(base, 1e-3)
+                m_i = c0 - win + int(np.argmax(d_i[c0 - win:c0 + win + 1]))
+                if d_i[m_i] <= 0.02:
+                    break
+                e2 = _half_max_edges(d_i, m_i, d_i[m_i], t, wp.step_px)
+                if e2 is None:
+                    break
+                drel[i], imin[i], D[i] = d_i, m_i, d_i[m_i]
+                tl, tr = e2
+            d = drel[i]
             wf[i] = tr - tl
             c = 0.5 * (tl + tr)
             L = wf[i] / 2 + _AREA_K * sig[i]
