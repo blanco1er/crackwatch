@@ -110,6 +110,11 @@ class App:
                 return err("not_found", 404)
             return self._file(os.path.join(WEB_DIR, "samples", name), mimetypes.guess_type(name)[0] or "application/octet-stream",
                               "public, max-age=3600")
+        if method == "GET" and path.startswith("/fonts/"):
+            name = path.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"onest-latin-[4-8]00-normal\.woff2", name):
+                return err("not_found", 404)
+            return self._file(os.path.join(WEB_DIR, "fonts", name), "font/woff2", "public, max-age=86400")
         if method == "GET" and path in ("/card.pdf", "/card-a5.pdf"):
             f = "card_A6-5x7-15mm.pdf" if path == "/card.pdf" else "card_A5-7x10-17mm.pdf"
             return self._file(os.path.join(PRINT_DIR, f), "application/pdf", "public, max-age=3600",

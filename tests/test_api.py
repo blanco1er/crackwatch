@@ -32,6 +32,8 @@ def test_static_and_health():
     assert r.status == 200 and b"CrackWatch" in r.body and "content-security-policy" in r.headers
     assert a.handle("GET", "/samples/close.jpg", {}, b"", {}, "1").status == 200
     assert a.handle("GET", "/samples/../api.py", {}, b"", {}, "1").status == 404
+    assert a.handle("GET", "/fonts/onest-latin-800-normal.woff2", {}, b"", {}, "1").body[:4] == b"wOF2"
+    assert a.handle("GET", "/fonts/../api.py", {}, b"", {}, "1").status == 404
     assert a.handle("GET", "/card.pdf", {}, b"", {}, "1").body[:4] == b"%PDF"
     h = json.loads(a.handle("GET", "/api/health", {}, b"", {}, "1").body)
     assert h["opencv"].startswith("5.") and h["limits"]["llm_calls_per_day"] > 0
