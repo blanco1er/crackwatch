@@ -46,7 +46,7 @@ function t(key, vars) {
 // "**bold** rest" -> nodes (translated strings only; values are inserted as text)
 function rich(str) {
   const out = [];
-  String(str).split(/(\*\*[^*]+\*\*)/).forEach((p) => { if (!p) return; out.push(p.startsWith('**') ? h('strong', null, p.slice(2, -2)) : document.createTextNode(p)); });
+  String(str).split(/(\*\*[^*]+\*\*|`[^`]+`)/).forEach((p) => { if (!p) return; out.push(p.startsWith('**') ? h('strong', null, p.slice(2, -2)) : p.startsWith('`') ? h('code', null, p.slice(1, -1)) : document.createTextNode(p)); });
   return out;
 }
 const num = (v, d = 2) => (v == null || Number.isNaN(+v) ? '—' : Number(v).toLocaleString(LOCALE(), { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -620,7 +620,7 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
     v = c.visits[visitIndex];
     const same = v.shots.findIndex((x) => x.source === source);   // replaying a demo step replaces it
     if (same >= 0) { const old = v.shots[same]; if (old.img) idb.del(old.img); if (old.ba) idb.del(old.ba); v.shots.splice(same, 1); }
-    if (visitIndex === 0) c.visits[1].shots = c.visits[1].shots.filter(() => source !== 'sample:close' ? true : false); // a new visit-1 result invalidates visit 2
+    if (source === 'sample:close') c.visits[1].shots.splice(0).forEach((x) => { idb.del(x.img); if (x.ba) idb.del(x.ba); }); // a new closer photo invalidates visit 2
   } else {
     const lv = c.visits[c.visits.length - 1]; const ls = lv && lv.shots[lv.shots.length - 1];
     const sameVisit = ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && at - ls.at < 12 * 3600000;
