@@ -302,6 +302,12 @@ def main():
                                  "true_width_mm": {"median": round(float(np.median(w)), 3), "max": round(float(w.max()), 3)},
                                  "true_length_mm": round(float(sum(np.linalg.norm(np.diff(np.array(c["pts_board_mm"]), axis=0), axis=1).sum() for c in gt)), 1)}
         print(name, meta["samples"][name])
+    prev = os.path.join(a.out, "samples.json")
+    if os.path.exists(prev):          # keep the hand-prepared real photo entry (real.jpg is not generated here)
+        with open(prev) as f:
+            old = json.load(f).get("samples", {})
+        if "real" in old:
+            meta["samples"]["real"] = old["real"]
     with open(os.path.join(a.out, "samples.json"), "w") as f:
         json.dump(meta, f, indent=1)
 

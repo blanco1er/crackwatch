@@ -41,6 +41,13 @@
     "max": 1.017
    },
    "true_length_mm": 81.8
+  },
+  "real": {
+   "image": "real.jpg",
+   "real": true,
+   "ground_truth": null,
+   "source": "Real photo by the project owner, 23 Oct 2026: crack B on a rendered facade, printed A6 card taped next to it (IMG_1599). Downscaled to 2000 px and re-encoded: no EXIF, no GPS. No person, plate or street number in frame.",
+   "note": "No ground truth on a real wall. The repeatability study over all photos of this crack is in eval_real/."
   }
  },
  "texture": {

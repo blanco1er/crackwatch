@@ -29,7 +29,7 @@ from . import visits
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 WEB_DIR = os.environ.get("CW_WEB_DIR", os.path.join(ROOT, "web"))
 PRINT_DIR = os.environ.get("CW_PRINT_DIR", os.path.join(ROOT, "print"))
-SAMPLES = ("blurry", "far", "close", "visit2")
+SAMPLES = ("blurry", "far", "close", "visit2", "real")
 MAX_UPLOAD = 15 * 1024 * 1024
 KEY_RE = re.compile(r"^uploads/\d{4}-\d{2}-\d{2}/[0-9a-f]{32}\.jpg$")
 
@@ -106,7 +106,7 @@ class App:
             return self._file(os.path.join(WEB_DIR, name), ctype, "no-cache" if path == "/" else "public, max-age=300", extra)
         if method == "GET" and path.startswith("/samples/"):
             name = path.rsplit("/", 1)[-1]
-            if not re.fullmatch(r"(blurry|far|close|visit2)\.jpg|samples\.json", name):
+            if not re.fullmatch(r"(blurry|far|close|visit2|real)\.jpg|samples\.json", name):
                 return err("not_found", 404)
             return self._file(os.path.join(WEB_DIR, "samples", name), mimetypes.guess_type(name)[0] or "application/octet-stream",
                               "public, max-age=3600")
