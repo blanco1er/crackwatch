@@ -361,3 +361,8 @@ button.ui-nav-item { font: inherit; font-size: var(--text-callout); }
   .ui-tabs-top a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 .ui-tabs-top a[aria-current="page"] { color: light-dark(#0055B3, #5CB8FF); }
+@media (min-width: 700px) and (max-width: 999px) {
+  .ui-toolbar > [data-new-photo] { width: var(--control-md, 36px); padding: 0; justify-content: center; }
+  .ui-toolbar > [data-new-photo] span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}
+.lead > .ui-banner:first-child { margin: 0 0 18px; }
