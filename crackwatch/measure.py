@@ -127,6 +127,31 @@ def tilt_from_homography(H, shape, focal_factor=0.85):
     return float(math.degrees(math.acos(min(1.0, abs(nrm[2]) / np.linalg.norm(nrm)))))
 
 
+def camera_center_board(H, shape, focal_factor=0.85):
+    """Camera centre in the board frame (mm; |z| = distance to the wall plane), with the same pinhole
+    assumption as tilt_from_homography (f = focal_factor * max(w, h), centred principal point)."""
+    h, w = shape[:2]
+    f = focal_factor * max(w, h)
+    K = np.array([[f, 0, w / 2 - 0.5], [0, f, h / 2 - 0.5], [0, 0, 1]])
+    M = np.linalg.inv(K) @ H
+    k = 1.0 / np.linalg.norm(M[:, 0])
+    r1, r2, t = M[:, 0] * k, M[:, 1] * k, M[:, 2] * k
+    Rm = np.column_stack([r1, r2, np.cross(r1, r2)])
+    return -Rm.T @ t
+
+
+def view_angle_across_deg(pts_mm, cam_c):
+    """Angle between the line of sight and the wall normal, measured in the plane perpendicular to the
+    crack (its principal direction). A crack is a 3-D gap: seen at an angle across it, one lip hides part
+    of the dark interior, so the apparent width shrinks by about depth x tan(angle)."""
+    c = pts_mm.mean(0)
+    d = pts_mm - c
+    _, vec = np.linalg.eigh(d.T @ d)
+    n = vec[:, 0]                                    # normal to the principal direction
+    v = cam_c[:2] - c
+    return float(math.degrees(math.atan2(float(v @ n), abs(float(cam_c[2])))))
+
+
 # ============================================================== rectification
 @dataclass
 class Rectified:
@@ -703,7 +728,8 @@ def _local_median(pts, vals, radius):
     return out
 
 
-def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.0, max_window_mm=6.0, max_percentile=95):
+def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.0, max_window_mm=6.0, max_percentile=95,
+              cam_c=None):
     cracks = []
     for i, c in enumerate(comps):
         w = c["width_mm"]
@@ -748,9 +774,49 @@ def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.
             "min_measurable_mm": round(max(1.5 / nat, 1.3 * sig_mm), 3),
             "bbox_board_mm": [round(float(v), 1) for v in (*p.min(0), *p.max(0))],
             "focus_region_board_mm": [round(float(v), 1) for v in (fx0, fy0, fx1, fy1)],
+            "view_angle_across_deg": None if cam_c is None else round(abs(view_angle_across_deg(p, cam_c)), 1),
         })
     cracks.sort(key=lambda d: -d["length_mm"])
     return cracks
+
+
+ZONE_MARGIN_MM = 40.0
+
+
+def zone_summary(rect: Rectified, comps, cracks, card: CardDetection, margin_mm=ZONE_MARGIN_MM, max_window_mm=6.0):
+    """Monitoring zone: the band of `margin_mm` around the card sheet, in board (card) millimetres. The
+    card stays glued between photos, so this is the same piece of wall in every photo of a series,
+    whatever the framing; widths are summarised over the crack points inside it (all cracks)."""
+    x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
+    Z = (x0 - margin_mm, y0 - margin_mm, x1 + margin_mm, y1 + margin_mm)
+    # how much of the zone (outside the masked sheet) this photo can search
+    gx, gy = np.meshgrid(np.arange(Z[0], Z[2], 2.0), np.arange(Z[1], Z[3], 2.0))
+    g = np.column_stack([gx.ravel(), gy.ravel()])
+    g = g[~((g[:, 0] > x0) & (g[:, 0] < x1) & (g[:, 1] > y0) & (g[:, 1] < y1))]
+    uv = np.round(rect.mm_to_px(g)).astype(int)
+    h, w = rect.search.shape
+    inside = (uv[:, 0] >= 0) & (uv[:, 0] < w) & (uv[:, 1] >= 0) & (uv[:, 1] < h)
+    cover = float(np.mean(inside & rect.search[np.clip(uv[:, 1], 0, h - 1), np.clip(uv[:, 0], 0, w - 1)]))
+    out = {"rect_board_mm": [round(v, 1) for v in Z], "margin_mm": margin_mm, "searchable_fraction": round(cover, 2)}
+    P, W, Wm, A = [], [], [], []
+    ang = {c["id"]: c.get("view_angle_across_deg") for c in cracks}
+    for i, c in enumerate(comps):
+        if "width_smooth_mm" not in c:
+            continue
+        p = c["pts_mm"]
+        m = (p[:, 0] > Z[0]) & (p[:, 0] < Z[2]) & (p[:, 1] > Z[1]) & (p[:, 1] < Z[3])
+        if m.sum() < 5:
+            continue
+        P.append(p[m]); W.append(c["width_smooth_mm"][m]); Wm.append(c["width_maxprof_mm"][m])
+        A.append(np.full(m.sum(), np.nan if ang.get(i) is None else ang[i]))
+    if not P:
+        return dict(out, n_points=0)
+    W, Wm, A = np.concatenate(W), np.concatenate(Wm), np.concatenate(A)
+    out.update({"n_points": int(len(W)), "length_mm": round(len(W) * 1.08 / rect.R, 1),
+                "width_mm": {"median": round(float(np.median(W)), 3), "p90": round(float(np.percentile(W, 90)), 3),
+                             "max": round(float(np.percentile(Wm, 95)), 3)},
+                "view_angle_across_deg": None if np.all(np.isnan(A)) else round(float(np.nanmedian(A)), 1)})
+    return out
 
 
 @dataclass
@@ -761,10 +827,11 @@ class MeasureResult:
     cracks: list = field(default_factory=list)
     rejected: list = field(default_factory=list)
     debug: dict = field(default_factory=dict)
+    zone: dict | None = None
 
     def to_json(self):
         return {"status": self.status, "quality": self.quality, "card": self.card,
-                "cracks": self.cracks, "rejected": [{k: v for k, v in r.items() if k != "skeleton_px"} for r in self.rejected]}
+                "cracks": self.cracks, "zone": self.zone, "rejected": [{k: v for k, v in r.items() if k != "skeleton_px"} for r in self.rejected]}
 
 
 def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
@@ -783,8 +850,10 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
     if seg is None:
         return MeasureResult("no_search_area", q, card_info)
     comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board)
-    cracks = summarize(rect, comps, q, card)
-    res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"])
+    cam_c = camera_center_board(card.H_img_from_board, gray.shape)
+    cracks = summarize(rect, comps, q, card, cam_c=cam_c)
+    res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"],
+                        zone=zone_summary(rect, comps, cracks, card))
     if keep_debug:
         res.debug = {"rect": rect, "seg": seg, "comps": comps, "card": card}
     return res

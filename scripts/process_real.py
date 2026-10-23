@@ -135,40 +135,95 @@ def e4_real(rows1, rows2, mire1, mire2):
         ext = l2["y1_mm"] - l1["y1_mm"]
         lines.append(f"| {l1['label']} | {l1['width_mm']:.2f} | {l2['width_mm']:.2f} | {true:+.2f} | {f(meas, '+.3f')} | {ext:.0f} mm |")
     pair = []
+    per_bar = {l1["label"]: {"true": l2["width_mm"] - l1["width_mm"], "tested": 0, "flagged": 0, "deltas": []}
+               for l1, l2 in zip(mire1["lines"], mire2["lines"])}
     for a, b in zip(ok1, ok2):
         c = compare(a["_res"], b["_res"])
         if c.get("status") == "ok":
             pair.append({"v1": a["photo"], "v2": b["photo"], "mode": c["registration"]["mode"], "new_length_mm": c["new_length_mm"],
                          "widening_median_mm": c["width_delta_mm"]["median"], "significant_widening": c["significant_widening"],
-                         "significant_growth": c["significant_growth"]})
+                         "widening_mm": c.get("widening_mm"), "widening_location_board_mm": c.get("widening_location_board_mm"),
+                         "significant_growth": c["significant_growth"], "windows": c.get("windows", [])})
+            # which bar each ~10 mm stretch lies on; a bar counts as flagged if any of its stretches is
+            for l1 in mire1["lines"]:
+                ws = [w for w in c.get("windows", []) if abs(w["center_board_mm"][0] - l1["x_mm"]) < 3.25
+                      and l1["y0_mm"] - 2 < w["center_board_mm"][1] < l1["y1_mm"] + 2]
+                if ws:
+                    pb = per_bar[l1["label"]]
+                    pb["tested"] += 1
+                    pb["flagged"] += any(w["significant"] for w in ws)
+                    pb["deltas"].append(float(np.median([w["delta_mm"] for w in ws])))
     out = lines + [""]
     if errs:
         out.append(f"- Erreur absolue moyenne sur l'écart de largeur (par trait, médianes des photos) : **{np.mean(errs):.3f} mm**")
     if pair:
         out.append(f"- Comparaisons photo à photo v1→v2 : {len(pair)} ; élargissement significatif détecté : "
                    f"{sum(p['significant_widening'] for p in pair)}/{len(pair)} ; rallongement détecté (> 4 mm) : {sum(p['significant_growth'] for p in pair)}/{len(pair)}")
+        out += ["", "Test par tronçon de ~10 mm (`change.py` : fissure entière + chaque tronçon, seuil de Bonferroni à 5 % "
+                "par paire, changement >= 0,1 mm). Un trait compte comme « signalé » si l'un de ses tronçons l'est.", "",
+                "| Trait | Écart vrai (mm) | Paires où le trait est comparé | Signalé élargi | Écart médian par paire (mm) |", "|---|---|---|---|---|"]
+        for lab, pb in per_bar.items():
+            dl = ", ".join(f"{d:+.2f}" for d in pb["deltas"]) or "—"
+            out.append(f"| {lab} | {pb['true']:+.2f} | {pb['tested']} | {pb['flagged']} | {dl} |")
+        ch = [pb for pb in per_bar.values() if pb["true"] > 0]
+        un = [pb for pb in per_bar.values() if pb["true"] == 0]
+        out += ["", f"- Traits élargis (vrai > 0) : signalés {sum(p['flagged'] for p in ch)}/{sum(p['tested'] for p in ch)} comparaisons ; "
+                f"traits inchangés : signalés à tort {sum(p['flagged'] for p in un)}/{sum(p['tested'] for p in un)}"]
     return out, pair, errs
 
 
-def e3(folder, tmp, overlays, scale_fix):
-    rows = []
+def _cv(v):
+    v = [x for x in v if x is not None]
+    return float(np.std(v, ddof=1) / np.mean(v)) if len(v) >= 3 and np.mean(v) > 0 else None
+
+
+def e3(folder, tmp, overlays, scale_fix, cell_mm=10.0):
+    """Repeatability on one real crack. Three per-photo widths, all defined identically for every photo:
+    - `median_mm`: the longest detected crack (what the app reports first; framing-dependent);
+    - `zone_median_mm`: all crack points in the monitoring zone (card sheet + 40 mm, card frame);
+    - location-matched: the zone cut into 10 mm cells (card frame); per photo, the median over the cells
+      that every measured photo sees, so each photo is scored on the same stretches of crack."""
+    rows, cells = [], []
     for i, p in enumerate(list_photos(folder)):
         img = load(p, tmp)
         res = measure_image(img, keep_debug=True)
         act = decide_next_action(res.to_json(), AgentState("real"))
         c = res.cracks[0] if res.cracks else None
+        z = res.zone or {}
+        zw = z.get("width_mm") or {}
         rows.append({"photo": os.path.basename(p), "status": res.status, "decision": act.name, "reason": act.reason,
                      "median_mm": c and round(c["width_mm"]["median"] * scale_fix, 3), "max_mm": c and round(c["width_mm"]["max"] * scale_fix, 3),
                      "length_mm": c and round(c["length_mm"] * scale_fix, 1), "uncertainty_mm": c and c["uncertainty_mm"],
-                     "px_per_mm": c and c["native_px_per_mm"], "blur_px": round(res.quality.get("blur_sigma_px", float("nan")), 2)})
+                     "px_per_mm": c and c["native_px_per_mm"], "blur_px": round(res.quality.get("blur_sigma_px", float("nan")), 2),
+                     "zone_median_mm": zw.get("median") and round(zw["median"] * scale_fix, 3),
+                     "zone_max_mm": zw.get("max") and round(zw["max"] * scale_fix, 3),
+                     "zone_length_mm": z.get("length_mm"), "zone_searchable": z.get("searchable_fraction"),
+                     "view_angle_across_deg": z.get("view_angle_across_deg")})
+        pc = {}
+        if res.status == "ok" and z.get("n_points"):
+            Z = z["rect_board_mm"]
+            for comp in res.debug["comps"]:
+                P, W = comp["pts_mm"], comp["width_mm"]
+                m = (P[:, 0] > Z[0]) & (P[:, 0] < Z[2]) & (P[:, 1] > Z[1]) & (P[:, 1] < Z[3])
+                for key, w in zip(map(tuple, np.floor(P[m] / cell_mm).astype(int)), W[m]):
+                    pc.setdefault(key, []).append(w)
+        cells.append({k: float(np.median(v)) * scale_fix for k, v in pc.items() if len(v) * 1.08 / res.debug["rect"].R >= 3.0} if pc else {})
         if i < 2 and res.status == "ok":
             with open(os.path.join(overlays, f"{os.path.basename(folder)}_{i + 1}.jpg"), "wb") as fh:
                 fh.write(render_overlay(img, res))
     ok = [r for r in rows if r["median_mm"] is not None and r["decision"] not in ("request_retake",)]
-    cv = lambda v: float(np.std(v, ddof=1) / np.mean(v)) if len(v) >= 3 and np.mean(v) > 0 else None  # noqa: E731
+    oki = [i for i, r in enumerate(rows) if r in ok]
+    common = set.intersection(*[set(cells[i]) for i in oki]) if oki else set()
+    for i, r in enumerate(rows):
+        r["matched_median_mm"] = round(float(np.median([cells[i][k] for k in common])), 3) if i in oki and common else None
+    frontal = [r for r in ok if r["view_angle_across_deg"] is not None and r["view_angle_across_deg"] <= 10.0]
     summ = {"n": len(rows), "measured": len(ok),
             "median_mm": float(np.median([r["median_mm"] for r in ok])) if ok else None,
-            "cv_median": cv([r["median_mm"] for r in ok]), "cv_max": cv([r["max_mm"] for r in ok]),
+            "cv_median": _cv([r["median_mm"] for r in ok]), "cv_max": _cv([r["max_mm"] for r in ok]),
+            "cv_zone_median": _cv([r["zone_median_mm"] for r in ok]), "cv_zone_max": _cv([r["zone_max_mm"] for r in ok]),
+            "n_common_cells": len(common), "cv_matched": _cv([r["matched_median_mm"] for r in ok]),
+            "n_frontal": len(frontal), "cv_zone_median_frontal": _cv([r["zone_median_mm"] for r in frontal]),
+            "cv_matched_frontal": _cv([r["matched_median_mm"] for r in frontal]),
             "decisions": {d: sum(r["decision"] == d for r in rows) for d in sorted({r["decision"] for r in rows})}}
     return rows, summ
 
@@ -219,15 +274,21 @@ def main():
                 continue
             rows, summ = e3(folder, tmp, overlays, scale_fix)
             name = os.path.basename(folder)
+            pct = lambda v: f(None if v is None else 100 * v, ".1f", " %")  # noqa: E731
             md += [f"## E3 — {name} (répétabilité, pas de vérité terrain)", "",
                    f"- Photos : {summ['n']} ; mesurées sans demande de reprise : {summ['measured']}",
-                   f"- Largeur médiane (médiane des photos) : {f(summ['median_mm'], '.3f', ' mm')}",
-                   f"- Coefficient de variation : largeur médiane {f(None if summ['cv_median'] is None else 100 * summ['cv_median'], '.1f', ' %')}, "
-                   f"largeur max {f(None if summ['cv_max'] is None else 100 * summ['cv_max'], '.1f', ' %')}",
+                   f"- Largeur médiane (médiane des photos, fissure la plus longue) : {f(summ['median_mm'], '.3f', ' mm')}",
+                   f"- Coefficient de variation entre photos :",
+                   f"  - fissure la plus longue de chaque photo (ancien indicateur) : médiane {pct(summ['cv_median'])}, max {pct(summ['cv_max'])}",
+                   f"  - zone de suivi (feuille de la carte + 40 mm, repère carte, même zone pour toutes les photos) : médiane {pct(summ['cv_zone_median'])}, max {pct(summ['cv_zone_max'])}",
+                   f"  - mêmes tronçons (cases de 10 mm de la zone vues par toutes les photos : {summ['n_common_cells']}) : médiane {pct(summ['cv_matched'])}",
+                   f"  - analyse, pas une règle de l'app : photos vues à <= 10° en travers de la fissure ({summ['n_frontal']}) : zone {pct(summ['cv_zone_median_frontal'])}, mêmes tronçons {pct(summ['cv_matched_frontal'])}",
                    f"- Décisions de l'agent (règles) : {', '.join(f'{k} {n}' for k, n in summ['decisions'].items())}", "",
-                   "| Photo | Statut | Décision | Médiane (mm) | Max (mm) | ± (mm) | px/mm | Flou (px) |", "|---|---|---|---|---|---|---|---|"]
+                   "| Photo | Décision | Plus longue : médiane (mm) | Zone : médiane (mm) | Zone : max (mm) | Mêmes tronçons (mm) | Angle en travers (°) | Zone cherchable | px/mm | ± (mm) |",
+                   "|---|---|---|---|---|---|---|---|---|---|"]
             for r in rows:
-                md.append(f"| {r['photo']} | {r['status']} | {r['decision']} | {r['median_mm']} | {r['max_mm']} | {r['uncertainty_mm']} | {r['px_per_mm']} | {r['blur_px']} |")
+                md.append(f"| {r['photo']} | {r['decision']} | {r['median_mm']} | {r['zone_median_mm']} | {r['zone_max_mm']} | {r['matched_median_mm']} | "
+                          f"{r['view_angle_across_deg']} | {r['zone_searchable']} | {r['px_per_mm']} | {r['uncertainty_mm']} |")
             md.append("")
             results[name] = {"summary": summ, "photos": rows}
     if len(md) < 12:

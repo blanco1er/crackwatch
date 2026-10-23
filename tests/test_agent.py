@@ -33,6 +33,7 @@ SCENARIOS = [
     ("blurred", obs(q={"blur_sigma_px": 3.1}), {}, "request_retake"),
     ("too oblique", obs(q={"tilt_deg_est": 65}), {}, "request_retake"),
     ("retake budget used, still blurred", obs(q={"blur_sigma_px": 3.1}), {"retakes": 2}, "schedule_next_visit"),
+    ("20 deg across the crack, rule off", obs(cracks=[dict(crack(), view_angle_across_deg=20.0)]), {}, "schedule_next_visit"),
     ("thin crack below resolution", obs(cracks=[crack(0.25, 0.2, ppm=4.0)]), {}, "request_closer_photo"),
     ("prior-based depth", obs(cracks=[crack(depth="prior")]), {}, "request_closer_photo"),
     ("no crack, far photo", obs("no_crack_found", q={"card_px_per_mm": 3.0}, cracks=[]), {}, "request_closer_photo"),
@@ -58,6 +59,13 @@ def test_scenarios():
             assert a.requires_human_approval
     print(f"{ok}/{len(SCENARIOS)} scenarios")
     assert ok == len(SCENARIOS)
+
+
+def test_view_angle_rule():
+    from crackwatch.agent import Policy
+    pol = Policy(max_view_angle_across_deg=10.0)
+    assert decide_next_action(obs(cracks=[dict(crack(), view_angle_across_deg=20.0)]), AgentState("i"), pol).name == "request_retake"
+    assert decide_next_action(obs(cracks=[dict(crack(), view_angle_across_deg=6.0)]), AgentState("i"), pol).name == "schedule_next_visit"
 
 
 def test_loop_trace():
@@ -90,6 +98,7 @@ def test_bedrock_request_shape():
 
 if __name__ == "__main__":
     test_scenarios()
+    test_view_angle_rule()
     test_loop_trace()
     test_bedrock_request_shape()
     print("all agent tests passed")

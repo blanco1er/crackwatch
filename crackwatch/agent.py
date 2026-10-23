@@ -36,6 +36,12 @@ class Policy:
     max_blur_px: float = 2.2               # card-edge blur sigma (photo px)
     max_saturated_frac: float = 0.03
     max_tilt_deg: float = 55.0
+    # Seen at an angle across it, a crack's near lip hides part of its dark interior: the apparent width
+    # loses ~ depth x tan(angle) (a crack looks dark where it is at least about as deep as wide, so 10 deg
+    # already hides ~18 %). On the owner's real cracks the width drops by 20-30 % from <= 7 deg to 13-22 deg.
+    # OFF by default: the threshold has not been validated on photos other than those it was seen on, and
+    # the synthetic demo photos (flat cracks, no depth) are taken at 13-21 deg. Set e.g. 10.0 to enforce.
+    max_view_angle_across_deg: float | None = None
     min_confidence: float = 0.5
     min_px_across_crack: float = 3.0       # want >= 3 photo px across the median width
     ticket_width_mm: float = 1.0           # indicative triage threshold (configurable)
@@ -104,6 +110,12 @@ def decide_next_action(obs: dict, state: AgentState, policy: Policy = Policy()) 
             return Action("request_closer_photo", {"region_board_mm": None, "zoom_factor": round(6.0 / ppm, 1)},
                           f"no crack found at {ppm:.1f} px/mm; fine cracks may be invisible at this distance")
         return Action("schedule_next_visit", {"days": 90}, "no crack detected (visual check by a human recommended)")
+
+    va = crack.get("view_angle_across_deg")
+    if va is not None and policy.max_view_angle_across_deg is not None and va > policy.max_view_angle_across_deg and can_retake:
+        return Action("request_retake", {"reason": "oblique_across_crack",
+                                         "instruction": "Stand square to the crack: step sideways until the phone faces it straight on."},
+                      f"seen {va:.0f} deg across the crack (> {policy.max_view_angle_across_deg:.0f}): its lip hides part of the width")
 
     # 2. active perception: is the width actually resolved?
     w_med = crack["width_mm"]["median"]
