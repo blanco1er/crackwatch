@@ -308,7 +308,8 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
 // Called straight from the tap so the picker keeps the user gesture.
 function startMeasure(crackId = null) {
   S.pending = crackId;
-  if (typeof camera.openGuidedCamera === 'function') {
+  // getUserMedia needs HTTPS (undefined over plain http): then the photo picker opens directly.
+  if (typeof camera.openGuidedCamera === 'function' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     try { return camera.openGuidedCamera({ lang, onPhoto: (f) => measureOwn(f instanceof File ? f : new File([f], 'photo.jpg', { type: f.type || 'image/jpeg' })), onCancel: () => {} }); } catch { /* fall back */ }
   }
   pickFile(crackId);
