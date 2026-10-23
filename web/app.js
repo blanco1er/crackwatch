@@ -1083,7 +1083,7 @@ async function savePdf(c) {
     text([c.place, c.demo ? t('demoTag') : null, t('pdfGenerated', { d: fmtDate(Date.now(), { day: 'numeric', month: 'long', year: 'numeric' }) })].filter(Boolean).join(' · '), { size: 10, color: grey, gap: 14 });
     text(`${t('pdfStatus')}: ${t(`st_${st}`)}`, { size: 12, bold: true, gap: 4 });
     if (last) {
-      const delta = ser.length > 1 ? last.max - first.max : null;
+      const delta = crackDelta(c);
       const lines = [[t('sMax'), `${Wt(last.max)} ± ${Wt(2 * last.unc)} (2 sigma)`], [t('sMedShort'), Wt(last.med)], [t('sLen'), L(last.len)],
         [t('sChange'), delta != null ? `${Wt(delta, { sign: true })} ${t('sChangeDays', { days: Math.round((last.at - first.at) / DAY) })}` : t('sChangeFirst')],
         [t('sNext'), c.nextVisitAt ? fmtDate(c.nextVisitAt) : '—']];
@@ -1098,7 +1098,7 @@ async function savePdf(c) {
         doc.setDrawColor(220, 220, 225); doc.setLineWidth(0.5);
         for (let v = 0; v <= vmax; v += vmax > 1.6 ? 0.5 : 0.25) { doc.line(cx + 40, Y(v), cx + cw - 50, Y(v)); doc.setFontSize(8); doc.setTextColor(...grey); doc.text(clean(W(v)[0]), cx + 34, Y(v) + 3, { align: 'right' }); }
         doc.setDrawColor(255, 56, 60); doc.setLineDashPattern([3, 3], 0); doc.line(cx + 40, Y(settings.widthAlert), cx + cw - 50, Y(settings.widthAlert)); doc.setLineDashPattern([], 0);
-        doc.setFontSize(8); doc.setTextColor(200, 40, 45); doc.text(clean(t('chartAlert', { v: Wt(settings.widthAlert) })), cx + cw - 46, Y(settings.widthAlert) + 3);
+        doc.setFontSize(8); doc.setTextColor(200, 40, 45); doc.text(clean(t('chartAlert', { v: Wt(settings.widthAlert) })), cx + 44, Y(settings.widthAlert) - 4);
         doc.setDrawColor(226, 86, 31); doc.setLineWidth(2);
         for (let i = 1; i < ser.length; i++) doc.line(X(ser[i - 1].at), Y(ser[i - 1].max), X(ser[i].at), Y(ser[i].max));
         ser.forEach((p) => { doc.setFillColor(226, 86, 31); doc.circle(X(p.at), Y(p.max), 3.5, 'F'); doc.setDrawColor(226, 86, 31); doc.setLineWidth(1); doc.line(X(p.at), Y(p.max + 2 * p.unc), X(p.at), Y(Math.max(0, p.max - 2 * p.unc)));
@@ -1112,10 +1112,10 @@ async function savePdf(c) {
     const addImg = async (src, w, x = M) => { const im = new Image(); im.src = src; await im.decode().catch(() => {}); const hh = w * (im.naturalHeight / (im.naturalWidth || 1)); need(hh + 4); doc.addImage(src, 'JPEG', x, y, w, hh); return hh; };
     if (baShot) {
       const p = JSON.parse(await idb.get(baShot.ba) || 'null');
-      if (p) { text(t('beforeAfter'), { size: 12, bold: true, gap: 4 }); const w = (CW - 12) / 2; need(w / 1.5 + 30); const y0 = y; await addImg(p.before, w, M); y = y0; const hh = await addImg(p.after, w, M + w + 12); y = y0 + hh + 4;
+      if (p) { const w = (CW - 12) / 2; need(w / 1.5 + 50); text(t('beforeAfter'), { size: 12, bold: true, gap: 4 }); const y0 = y; await addImg(p.before, w, M); y = y0; const hh = await addImg(p.after, w, M + w + 12); y = y0 + hh + 4;
         text(`${fmtDate(c.visits[0].at)}  ·  ${fmtDate(baShot.visitAt)}  —  ${t('baCaptionShort')}`, { size: 8.5, color: grey, gap: 12 }); }
     }
-    if (imgShot) { const src = await idb.get(imgShot.img); if (src) { text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
+    if (imgShot) { const src = await idb.get(imgShot.img); if (src) { need(CW * 0.8 * 0.75 + 30); text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
     // inspector + ticket
     if (ls) {
       text(t('pdfInspector'), { size: 12, bold: true, gap: 4 });
