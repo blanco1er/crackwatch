@@ -795,10 +795,19 @@ async function savePdf(c) {
     };
     const ser = series(c); const last = ser[ser.length - 1]; const first = ser[0]; const ls = lastShot(c); const st = crackStatus(c);
     const grey = [110, 110, 118];
-    text('CrackWatch', { size: 10, bold: true, color: grey, gap: 2 });
+    text('CrackWatch', { size: 11, bold: true, color: [255, 90, 31], gap: 4 });
     text(t('pdfTitle', { name: c.name }), { size: 22, bold: true, gap: 2 });
     text([c.place, c.demo ? t('demoTag') : null, t('pdfGenerated', { d: fmtDate(Date.now(), { day: 'numeric', month: 'long', year: 'numeric' }) })].filter(Boolean).join(' · '), { size: 10, color: grey, gap: 14 });
-    text(`${t('pdfStatus')}: ${t(`st_${st}`)}`, { size: 12, bold: true, gap: 4 });
+    const vd = ls ? verdict(ls, c) : null;
+    if (last) {
+      text(t('maxWidth'), { size: 11, color: grey, gap: 0 });
+      need(52); doc.setFont('helvetica', 'bold'); doc.setFontSize(46); doc.setTextColor(11, 11, 12); doc.text(clean(Wt(last.max)), M, y + 42);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(12); doc.setTextColor(...grey); doc.text(clean(`± ${Wt(2 * last.unc)}`), M, y + 62); y += 78;
+    }
+    if (vd) {
+      const col = { ok: [22, 122, 65], watch: [138, 90, 0], act: [192, 38, 43] }[vd.tone] || [28, 28, 30];
+      text(vd.title, { size: 15, bold: true, color: col, gap: 2 }); text(vd.text, { size: 11, gap: 14 });
+    }
     if (last) {
       const delta = crackDelta(c);
       const lines = [[t('sMax'), `${Wt(last.max)} ± ${Wt(2 * last.unc)} (2 sigma)`], [t('sMedShort'), Wt(last.med)], [t('sLen'), L(last.len)],
@@ -825,14 +834,14 @@ async function savePdf(c) {
       }
     }
     // photos
-    const imgShot = [...allShots(c)].reverse().find((x) => x.img); const baShot = [...allShots(c)].reverse().find((x) => x.ba);
+    const imgShot = [...allShots(c)].reverse().find((x) => x.cu || x.img); const baShot = [...allShots(c)].reverse().find((x) => x.ba);
     const addImg = async (src, w, x = M) => { const im = new Image(); im.src = src; await im.decode().catch(() => {}); const hh = w * (im.naturalHeight / (im.naturalWidth || 1)); need(hh + 4); doc.addImage(src, 'JPEG', x, y, w, hh); return hh; };
     if (baShot) {
       const p = JSON.parse(await idb.get(baShot.ba) || 'null');
       if (p) { const w = (CW - 12) / 2; need(w / 1.5 + 50); text(t('beforeAfter'), { size: 12, bold: true, gap: 4 }); const y0 = y; await addImg(p.before, w, M); y = y0; const hh = await addImg(p.after, w, M + w + 12); y = y0 + hh + 4;
         text(`${fmtDate(c.visits[0].at)}  ·  ${fmtDate(baShot.visitAt)}  —  ${t('baCaptionShort')}`, { size: 8.5, color: grey, gap: 12 }); }
     }
-    if (imgShot) { const src = await idb.get(imgShot.img); if (src) { need(CW * 0.8 * 0.75 + 30); text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
+    if (imgShot) { const src = await idb.get(imgShot.cu || imgShot.img); if (src) { need(CW * 0.8 * 0.75 + 30); text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
     // inspector + ticket
     if (ls) {
       text(t('pdfInspector'), { size: 12, bold: true, gap: 4 });
