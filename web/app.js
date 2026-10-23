@@ -414,6 +414,11 @@ function renderMeasure() {
   const steps = [['wallet', 'st1t', 'st1d'], ['place', 'st2t', 'st2d'], ['shoot', 'st3t', 'st3d']];
   root.append(h('section', { class: 'how', 'aria-labelledby': 'howTitle' }, h('h2', { class: 'section-title', id: 'howTitle' }, t('howTitle')),
     h('ol', { class: 'how__list' }, ...steps.map(([k, tt, dd, extra]) => h('li', { class: 'tile how__item' }, stepArt(k), h('div', null, h('h3', null, t(tt)), h('p', null, t(dd)), extra || null))))));
+  // Precision mode for professionals: printed card left on the wall (optional, never needed for a first measure).
+  root.append(h('section', { class: 'tile pro', 'aria-labelledby': 'proTitle' }, h('h2', { class: 'pro__title', id: 'proTitle' }, t('proTitle')),
+    h('p', null, t('proText')),
+    h('ol', { class: 'pro__steps' }, h('li', null, t('proS1')), h('li', null, t('proS2')), h('li', null, t('proS3'))),
+    h('a', { class: 'link-btn', href: '/card.pdf', target: '_blank', rel: 'noopener', 'data-visit': 'card' }, icon('doc'), h('span', null, t('precisionCta')))));
   root.append(h('p', { class: 'fine' }, t('privacy')));
 }
 

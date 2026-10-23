@@ -14,6 +14,7 @@ export const T = {
     st3t: 'Point your phone', st3d: 'The photo takes itself when the card and the crack are sharp.',
     cardBlur: 'Your card is blurred automatically — we never keep its numbers.',
     precisionTitle: 'Precision mode (printed card)', precisionText: 'For long-term monitoring by a professional: print the CrackWatch card at 100 % and leave it taped on the wall between visits. Its pattern gives a finer scale and lines up every photo exactly.', precisionCta: 'Download the printed card (PDF)', precisionHint: 'Following a crack for months? The printed card, left on the wall, is more precise.',
+    proTitle: 'For professionals: precision mode', proText: 'Following a crack for months, for a client or an insurer? Leave the printed CrackWatch card on the wall: every visit is measured against the same reference and lined up exactly.', proS1: 'Print the PDF on A4 at actual size (100 %, never “fit to page”).', proS2: 'Cut out the card, keeping a 1 cm white margin.', proS3: 'Tape it flat next to the crack and leave it there between visits.',
     privacy: 'Your photo is sent to a private server for measuring and deleted after 24 hours. Location data is removed. Your results stay on this phone.',
     // 2 · analysis
     aMeasuring: 'Measuring…', aRetake: 'Another photo needed', aDone: 'Measured', aStopped: 'Measuring stopped',
@@ -119,6 +120,7 @@ export const T = {
     st3t: 'Visez avec votre téléphone', st3d: 'La photo se prend toute seule quand la carte et la fissure sont nettes.',
     cardBlur: 'Votre carte est floutée automatiquement : nous ne gardons jamais ses numéros.',
     precisionTitle: 'Mode précision (carte imprimée)', precisionText: 'Pour un suivi au long cours par un professionnel : imprimez la carte CrackWatch à 100 % et laissez-la collée au mur entre les visites. Son motif donne une échelle plus fine et aligne exactement chaque photo.', precisionCta: 'Télécharger la carte imprimable (PDF)', precisionHint: 'Vous suivez une fissure pendant des mois ? La carte imprimée, laissée au mur, est plus précise.',
+    proTitle: 'Pour les professionnels : mode précision', proText: 'Vous suivez une fissure pendant des mois, pour un client ou une assurance ? Laissez la carte CrackWatch imprimée au mur : chaque visite est mesurée avec la même référence et alignée exactement.', proS1: 'Imprimez le PDF sur une feuille A4 en taille réelle (100 %, jamais « ajuster à la page »).', proS2: 'Découpez la carte en gardant 1 cm de marge blanche.', proS3: 'Scotchez-la à plat à côté de la fissure et laissez-la entre les visites.',
     privacy: 'Votre photo est envoyée à un serveur privé pour la mesure, puis effacée au bout de 24 heures. La position est supprimée. Vos résultats restent sur ce téléphone.',
     aMeasuring: 'Mesure en cours…', aRetake: 'Il faut une autre photo', aDone: 'Mesure terminée', aStopped: 'Mesure interrompue',
     aWait: 'En général quelques secondes.', aWaitCold: 'Réveil du serveur de mesure, environ 10 secondes.', uploading: 'Envoi de la photo…',

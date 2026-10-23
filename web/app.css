@@ -308,6 +308,13 @@ textarea.field { min-height: 96px; resize: vertical; }
 .precision p { margin: 0 0 4px; font-size: 15px; color: var(--ink-2); }
 .precision .link-btn { color: var(--brand-text); }
 .inline-link { color: var(--brand-text); font-weight: 600; }
+.pro { padding: 20px 20px 12px; margin: 28px 0 16px; }
+.pro__title { margin: 0 0 6px; font: 800 20px/1.2 var(--font-sans); letter-spacing: -0.01em; }
+.pro p { margin: 0 0 12px; font-size: 15px; line-height: 1.45; color: var(--ink-2); }
+.pro__steps { margin: 0 0 6px; padding-left: 22px; font-size: 15px; line-height: 1.45; color: var(--ink); }
+.pro__steps li + li { margin-top: 6px; }
+.pro__steps li::marker { color: var(--brand-text); font-weight: 700; }
+.pro .link-btn { color: var(--brand-text); }
 .photo--free { aspect-ratio: auto; margin-left: auto; margin-right: auto; background: #111; }
 .photo--free img { object-fit: fill; }
 .cands { position: absolute; inset: 0; width: 100%; height: 100%; }
