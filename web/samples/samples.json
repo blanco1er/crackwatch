@@ -1,5 +1,5 @@
 {
- "generator": "crackwatch.synth (procedural concrete, exact ground truth)",
+ "generator": "crackwatch synthetic crack on a CC0 Poly Haven wall texture, exact ground truth",
  "seed": 424246,
  "samples": {
   "blurry": {
@@ -42,5 +42,27 @@
    },
    "true_length_mm": 81.8
   }
+ },
+ "texture": {
+  "id": "plastered_wall",
+  "name": "Plastered Wall",
+  "authors": [
+   "Amal Kumar"
+  ],
+  "url": "https://polyhaven.com/a/plastered_wall",
+  "license": "CC0"
+ },
+ "render": {
+  "texture_file": "plastered_wall_diff_crop.jpg",
+  "texture_px_per_mm": 6.0,
+  "texture_smooth_mm": 1.5,
+  "texture_contrast": 2.5,
+  "texture_detail": 0.35,
+  "tint_bgr": [
+   1.0,
+   1.08,
+   1.15
+  ],
+  "exposure": 1.0
  }
 }

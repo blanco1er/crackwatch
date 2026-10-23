@@ -1,0 +1,14 @@
+{
+ "id": "plastered_wall",
+ "name": "Plastered Wall",
+ "authors": ["Amal Kumar"],
+ "url": "https://polyhaven.com/a/plastered_wall",
+ "license": "CC0",
+ "license_url": "https://polyhaven.com/license",
+ "source_file": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/4k/plastered_wall/plastered_wall_diff_4k.jpg",
+ "source_sha256": "e1c04a26f6d0718bdd8471d91ca6722345ed771348ceb48171a51127900b909d",
+ "source_size_px": [4096, 4096],
+ "source_real_size_mm": [2000, 2000],
+ "derived": "centre crop x 523..3573, y 863..3233 of the 4k diffuse map, re-encoded JPEG quality 92 (OpenCV)",
+ "sha256": "20b24122acb2c77e69ed42c8db59bab84dd1d2d9a91082ff4bc4c89bb5ee2e65"
+}
