@@ -349,3 +349,6 @@ button.ui-nav-item { font: inherit; font-size: var(--text-callout); }
 }
 .width-chart .chart-end { paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: 4px; }
 .width-chart .chart-th { paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: 4px; }
+.ui-stat__delta { white-space: normal; }
+.tk-ba { margin-top: 18px; }
+.tk-ba h4 { margin: 0 0 4px; }

@@ -177,7 +177,7 @@ async function resetDemo() {
 }
 
 // ------------------------------------------------------------------ routing
-const S = { view: 'walls', crackId: null, run: null, mediaMode: 'measured', shared: null };
+const S = { view: 'walls', crackId: null, run: null, mediaMode: 'compare', shared: null };
 function route() {
   const hsh = location.hash.replace(/^#/, '');
   if (hsh.startsWith('s=')) { S.shared = decodeShare(hsh.slice(2)); return show('shared'); }
@@ -530,7 +530,7 @@ function decisionWhy(sh) {
     const c = sh.comparison; const parts = [];
     if (c && c.status === 'ok') parts.push(t('why_ticket_widen', { d: Wt(c.width_delta_mm.median, { sign: true }), u: Wt(2 * c.delta_uncertainty_mm) }));
     if (cr) parts.push(t('why_ticket_max', { v: Wt(cr.width_mm.max) }));
-    parts.push(t('why_ticket_human'));
+    if (!sh.ticket || sh.ticket.status === 'pending_human_approval') parts.push(t('why_ticket_human'));
     return parts.join(' ');
   }
   return a.reason || '';
@@ -539,7 +539,7 @@ function inspectorCard(c, sh, { inCrack = false, onNext } = {}) {
   const card = h('section', { class: 'inspector', 'aria-live': 'polite' });
   if (!sh) return card;
   const name = sh.decision?.name;
-  const tone = sh.error ? 'warn' : { request_retake: 'warn', request_closer_photo: 'warn', propose_ticket: 'critical', schedule_next_visit: 'ok' }[name] || 'info';
+  const tone = sh.error ? 'warn' : sh.ticket && sh.ticket.status === 'approved' ? 'ok' : sh.ticket && sh.ticket.status === 'rejected' ? 'info' : { request_retake: 'warn', request_closer_photo: 'warn', propose_ticket: 'critical', schedule_next_visit: 'ok' }[name] || 'info';
   card.dataset.tone = tone;
   card.append(h('div', { class: 'inspector__who' }, h('span', { class: 'inspector__avatar', 'aria-hidden': 'true' }, icon('agent')), h('span', null, t('inspector')),
     h('span', { class: 'inspector__planner' }, sh.error ? '' : decidedBy(sh))));
@@ -843,7 +843,6 @@ function openTicket(crackId, shotId) {
   if (cmp?.registration) fact(t('registration'), cmp.registration.mode === 'texture_homography' ? t('regTex') : t('regCard'));
   fact(t('proposedBy'), decidedBy(sh));
   body.append(facts);
-  if (sh.ba) { const box = h('div', { class: 'tk-ba' }); body.append(box); idb.get(sh.ba).then((v) => { if (v) { const p = JSON.parse(v); box.append(beforeAfter(p.before, p.after, fmtShort(c.visits[0].at), fmtShort(sh.at))); } }); }
   if (tk.status !== 'pending_human_approval') {
     body.append(banner(tk.status === 'approved' ? 'info' : 'warn', t(`tk_${tk.status}`), t(tk.status === 'approved' ? 'approvedText' : 'rejectedText', { d: tk.decidedAt ? fmtDate(tk.decidedAt) : '' }) + (tk.localOnly ? ` ${t('localOnly')}` : '')));
     if (tk.note) body.append(h('p', { class: 'ui-footnote ui-secondary' }, `${t('note')}: ${tk.note}`));
@@ -869,6 +868,7 @@ function openTicket(crackId, shotId) {
     body.append(h('div', { class: 'tk-actions' }, no, ok));
     body.append(h('p', { class: 'ui-footnote ui-secondary' }, t('tkFoot')));
   }
+  if (sh.ba) { const box = h('div', { class: 'tk-ba' }, h('h4', { class: 'ui-headline' }, t('evidencePhotos'))); body.append(box); idb.get(sh.ba).then((v) => { if (v) { const p = JSON.parse(v); box.append(beforeAfter(p.before, p.after, fmtShort(c.visits[0].at), fmtShort(sh.at))); } }); }
   openSheet('sheet-ticket');
 }
 
@@ -933,7 +933,7 @@ function renderSettings() {
   const ul = h('ul', { class: 'ui-list' });
   const info = (k, v) => ul.append(h('li', null, h('div', { class: 'ui-row' }, h('div', { class: 'ui-row__body' }, h('span', { class: 'ui-row__title' }, k)), h('span', { class: 'ui-row__detail' }, v))));
   info(t('aboutService'), health ? `OpenCV ${health.opencv} · ${health.runtime}` : t('svcUnknown'));
-  info(t('aboutAgent'), 'Amazon Nova 2 Lite · Bedrock');
+  info(t('aboutAgent'), t('aboutAgentVal'));
   info(t('aboutLimits'), health ? t('limitsVal', { n: health.limits.inspections_per_visitor_day }) : '—');
   about.append(ul, h('p', { class: 'ui-list__footer' }, t('credits')));
   col2.append(about);
