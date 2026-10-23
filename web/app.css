@@ -294,3 +294,10 @@ textarea.field { min-height: 96px; resize: vertical; }
 @media (min-width: 700px) and (max-width: 899px) {
   .topbar, .page { max-width: 720px; }
 }
+.art__accent-line { fill: none; stroke: var(--brand); stroke-width: 2.2; }
+.art__ring { fill: none; stroke: var(--brand); stroke-width: 2; stroke-dasharray: 4 5; }
+.precision { padding: 16px 18px; margin: 4px 0 8px; }
+.precision strong { display: block; font-size: 17px; margin-bottom: 4px; }
+.precision p { margin: 0 0 4px; font-size: 15px; color: var(--ink-2); }
+.precision .link-btn { color: var(--brand-text); }
+.inline-link { color: var(--brand-text); font-weight: 600; }

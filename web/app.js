@@ -3,6 +3,7 @@
 // through a presigned POST and are deleted after 24 h.
 import { toast, openSheet, closeSheet, setTheme } from '/ds/motion.js';
 import { T } from '/i18n.js';
+import * as camera from '/camera.js';
 
 // ------------------------------------------------------------------ tiny helpers
 const $ = (s, r = document) => r.querySelector(s);
@@ -303,6 +304,15 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
 }
 
 // ------------------------------------------------------------------ own photo
+// "Measure a crack": the guided camera when it is there (web/camera.js), else the system photo picker.
+// Called straight from the tap so the picker keeps the user gesture.
+function startMeasure(crackId = null) {
+  S.pending = crackId;
+  if (typeof camera.openGuidedCamera === 'function') {
+    try { return camera.openGuidedCamera({ lang, onPhoto: (f) => measureOwn(f instanceof File ? f : new File([f], 'photo.jpg', { type: f.type || 'image/jpeg' })), onCancel: () => {} }); } catch { /* fall back */ }
+  }
+  pickFile(crackId);
+}
 function pickFile(crackId = null) { S.pending = crackId; const f = $('#fileInput'); f.value = ''; f.click(); }
 async function measureOwn(file) {
   if (inflight) return;
@@ -372,24 +382,23 @@ function back() {
 
 // ------------------------------------------------------------------ 1 · MEASURE (first screen)
 function stepArt(kind) {
-  // simple line drawings, one per step (stroke icons in the app's own style)
+  // simple line drawings, one per step, in the app's stroke style
   const svg = s('svg', { viewBox: '0 0 120 80', class: 'art', 'aria-hidden': 'true' });
   const add = (tag, attrs) => svg.append(s(tag, attrs));
-  if (kind === 'print') {
-    add('rect', { x: 30, y: 26, width: 60, height: 34, rx: 6, class: 'art__line' });
-    add('path', { d: 'M42 26V10h36v16M42 52h36v20H42z', class: 'art__line' });
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2 === 0) add('rect', { x: 50 + i * 7, y: 56 + j * 7, width: 7, height: 7, class: 'art__fill' });
-    add('circle', { cx: 80, cy: 36, r: 2.5, class: 'art__accent' });
+  if (kind === 'wallet') {
+    add('rect', { x: 22, y: 18, width: 76, height: 48, rx: 6, class: 'art__line art__card' });
+    add('rect', { x: 32, y: 32, width: 14, height: 11, rx: 2, class: 'art__accent-line' });
+    add('path', { d: 'M32 54h30M68 54h18', class: 'art__line' });
   } else if (kind === 'place') {
     add('path', { d: 'M10 10h100v60H10z', class: 'art__line art__wall' });
-    add('path', { d: 'M74 10l-6 14 7 9-8 14 5 9-4 14', class: 'art__crack' });
-    add('rect', { x: 32, y: 26, width: 24, height: 32, rx: 2, class: 'art__line art__card' });
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) if ((i + j) % 2 === 0) add('rect', { x: 36 + i * 6, y: 30 + j * 6, width: 6, height: 6, class: 'art__fill' });
+    add('path', { d: 'M82 10l-6 14 7 9-8 14 5 9-4 14', class: 'art__crack' });
+    add('rect', { x: 26, y: 29, width: 38, height: 24, rx: 3.5, class: 'art__line art__card' });
+    add('rect', { x: 31, y: 35, width: 7, height: 6, rx: 1, class: 'art__accent-line' });
   } else {
     add('rect', { x: 40, y: 4, width: 40, height: 72, rx: 9, class: 'art__line' });
-    add('path', { d: 'M74 14l-4 10 5 7-5 9 3 7-3 10', class: 'art__crack' });
-    add('rect', { x: 47, y: 30, width: 14, height: 19, rx: 1.5, class: 'art__line art__card' });
-    add('circle', { cx: 60, cy: 68, r: 3.5, class: 'art__line' });
+    add('path', { d: 'M71 16l-4 10 5 7-5 9 3 7-3 10', class: 'art__crack' });
+    add('rect', { x: 46, y: 33, width: 17, height: 11, rx: 2, class: 'art__line art__card' });
+    add('circle', { cx: 60, cy: 40, r: 22, class: 'art__ring' });
   }
   return svg;
 }
@@ -398,11 +407,10 @@ function renderMeasure() {
   root.append(h('h1', { class: 'display' }, t('valueLine')),
     h('p', { class: 'lede' }, t('valueSub')),
     h('div', { class: 'cta' },
-      h('button', { class: 'btn btn--primary', type: 'button', onclick: () => pickFile() }, icon('camera'), h('span', null, t('measureCta'))),
+      h('button', { class: 'btn btn--primary', type: 'button', onclick: () => startMeasure() }, icon('camera'), h('span', null, t('measureCta'))),
       h('button', { class: 'btn btn--soft', type: 'button', onclick: () => startExample() }, h('span', null, t('exampleCta')))),
     h('p', { class: 'fine center' }, t('noAccount')));
-  const steps = [['print', 'st1t', 'st1d', h('a', { class: 'link-btn', href: '/card.pdf', target: '_blank', rel: 'noopener', 'data-visit': 'card' }, icon('doc'), h('span', null, t('st1cta')))],
-    ['place', 'st2t', 'st2d'], ['shoot', 'st3t', 'st3d']];
+  const steps = [['wallet', 'st1t', 'st1d'], ['place', 'st2t', 'st2d'], ['shoot', 'st3t', 'st3d']];
   root.append(h('section', { class: 'how', 'aria-labelledby': 'howTitle' }, h('h2', { class: 'section-title', id: 'howTitle' }, t('howTitle')),
     h('ol', { class: 'how__list' }, ...steps.map(([k, tt, dd, extra]) => h('li', { class: 'tile how__item' }, stepArt(k), h('div', null, h('h3', null, t(tt)), h('p', null, t(dd)), extra || null))))));
   root.append(h('p', { class: 'fine' }, t('privacy')));
@@ -460,14 +468,14 @@ function renderAnalyze() {
     const e = R.error;
     const msg = !navigator.onLine || e.name === 'TypeError' ? t('errOffline') : e.code === 'daily_limit' || e.code === 'visitor_limit' ? e.message : e.code === 'image_unavailable' ? t('errExpired') : e.code === 'image_too_small' ? t('errSmall') : e.code === 'not_an_image' ? t('errNotImage') : t('errGeneric');
     root.append(h('div', { class: 'note note--watch', role: 'alert' }, h('strong', null, t('errTitle')), h('p', null, msg)));
-    acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (sim ? runSimStep(R.step) : ex ? startExample() : R.file ? measureOwn(R.file) : pickFile(R.crackId)) }, icon('retry'), h('span', null, t('tryAgain'))));
+    acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (sim ? runSimStep(R.step) : ex ? startExample() : R.file ? measureOwn(R.file) : startMeasure(R.crackId)) }, icon('retry'), h('span', null, t('tryAgain'))));
   }
   if (R.phase === 'done') {
     const v = verdict(R.shot, c);
     if (v.kind === 'retake') {
       root.append(h('div', { class: 'note note--watch' }, h('strong', null, t('retakeAsk')), h('p', null, h('b', null, v.title), ' ', v.text)));
       if (sim) acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runSimStep(R.step + 1) }, icon('camera'), h('span', null, t('exRetaken'))));
-      else acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => pickFile(c.id) }, icon('camera'), h('span', null, t('takeAnother'))));
+      else acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => startMeasure(c.id) }, icon('camera'), h('span', null, t('takeAnother'))));
     } else if (sim && R.step === 2) {
       root.append(h('div', { class: 'note' }, h('strong', null, t('ex3Note')), h('p', null, t('ex3NoteText', { v: Wt(R.shot.cracks[0].width_mm.max) }))));
       acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => runSimStep(3) }, h('span', null, t('exLater')), icon('chev-r')));
@@ -501,7 +509,7 @@ function renderResult() {
         : h('div', { class: 'tile fact' }, h('span', null, t('measuredIn')), h('strong', null, `${num((sh.timings?.total_ms || 0) / 1000, 1)} s`))));
   }
   const acts = h('div', { class: 'cta' });
-  if (v.kind === 'retake') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, t('takeAnother'))));
+  if (v.kind === 'retake') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : startMeasure(c.id)) }, icon('camera'), h('span', null, t('takeAnother'))));
   else if (!c.tracked) {
     acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openTrack(c) }, icon('plus'), h('span', null, t('trackCta'))));
     acts.append(h('button', { class: 'btn btn--soft', type: 'button', disabled: !tracked().some((x) => !x.demo), onclick: () => openCompare(c) }, h('span', null, t('compareCta'))));
@@ -522,6 +530,7 @@ function howMeasured(sh, c) {
     h('p', { class: 'fine' }, t('techLine', { b: num(q.blur_sigma_px, 2), ppm: num(q.card_px_per_mm, 1), ms: sh.timings?.total_ms ?? '—', cost: num(sh.llm?.cost_usd || 0, 4) })),
     h('p', { class: 'fine' }, t('scaleNote')));
   if (c && c.real) d.append(h('p', { class: 'fine' }, t('provReal')));
+  d.append(h('p', { class: 'fine' }, t('precisionHint'), ' ', h('a', { class: 'inline-link', href: '/card.pdf', target: '_blank', rel: 'noopener', 'data-visit': 'card' }, t('precisionCta'))));
   if (sh.truth) d.append(h('p', { class: 'fine' }, t('provSim', { v: Wt(sh.truth.true_width_mm.max), m: sh.cracks?.[0] ? Wt(sh.cracks[0].width_mm.max) : '—' })));
   return d;
 }
@@ -539,7 +548,7 @@ function renderCracks() {
   root.append(h('h1', { class: 'title-xl' }, t('myCracks')));
   if (!list.length) {
     root.append(h('div', { class: 'empty' }, stepArt('place'), h('h2', null, t('emptyTitle')), h('p', null, t('emptyText')),
-      h('div', { class: 'cta' }, h('button', { class: 'btn btn--primary', type: 'button', onclick: () => pickFile() }, icon('camera'), h('span', null, t('measureCta'))),
+      h('div', { class: 'cta' }, h('button', { class: 'btn btn--primary', type: 'button', onclick: () => startMeasure() }, icon('camera'), h('span', null, t('measureCta'))),
         h('button', { class: 'btn btn--soft', type: 'button', onclick: () => startExample() }, t('exampleCta'))),
       h('button', { class: 'link-btn', type: 'button', onclick: () => startSim() }, icon('play'), h('span', null, t('simCta')))));
     return;
@@ -551,7 +560,7 @@ function renderCracks() {
       h('div', { class: 'crack-card__top' }, thumb(c), h('div', { class: 'crack-card__id' }, h('strong', null, c.name), h('span', null, c.place || fmtDate(c.createdAt))), badgeOf(c) ? h('span', { class: 'badge-example' }, badgeOf(c)) : null),
       h('div', { class: 'crack-card__bottom' }, last ? hero(last.max, { cls: 'hero--md' }) : h('span', { class: 'muted' }, t('trNoPhoto')), chip(trendOf(c))))));
   });
-  root.append(ul, h('div', { class: 'cta' }, h('button', { class: 'btn btn--soft', type: 'button', onclick: () => pickFile() }, icon('plus'), h('span', null, t('addCrack')))));
+  root.append(ul, h('div', { class: 'cta' }, h('button', { class: 'btn btn--soft', type: 'button', onclick: () => startMeasure() }, icon('plus'), h('span', null, t('addCrack')))));
   if (!crackById(SIM_ID)) root.append(h('div', { class: 'row-actions' }, h('button', { class: 'link-btn', type: 'button', onclick: () => startSim() }, icon('play'), h('span', null, t('simCta')))));
 }
 function miniChart(ser) {
@@ -605,7 +614,7 @@ function renderCrack() {
   B.push(h('section', { class: 'block o8' }, h('h2', { class: 'section-title' }, t('visits')), visits));
   const pend = allShots(c).find((x) => x.ticket && x.ticket.status === 'pending_human_approval');
   B.push(h('div', { class: 'cta o6' },
-    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, c.demo ? t('replayExample') : t('measureAgain'))),
+    h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : startMeasure(c.id)) }, icon('camera'), h('span', null, c.demo ? t('replayExample') : t('measureAgain'))),
     h('button', { class: 'btn btn--soft', type: 'button', onclick: () => savePdf(c) }, icon('doc'), h('span', null, t('reportCta'))),
     h('button', { class: `btn btn--soft ${pend ? 'is-act' : ''}`, type: 'button', onclick: () => openAlert(c, pend || ls) }, icon('bell'), h('span', null, t('alertCta')))));
   B.push(h('div', { class: 'row-actions o7' },
@@ -692,7 +701,8 @@ function openSettings() {
   b.append(row(t('setLang'), seg('lang', [['en', 'English'], ['fr', 'Français']], lang, (v) => setLang(v))),
     row(t('setTheme'), seg('theme', [['system', t('themeSystem')], ['light', t('themeLight')], ['dark', t('themeDark')]], settings.theme, (v) => { settings.theme = v; saveSettings(); setTheme(v); })),
     row(t('setUnits'), seg('units', [['mm', 'mm'], ['in', 'in']], settings.units, (v) => { settings.units = v; saveSettings(); render(); })),
-    h('a', { class: 'link-btn', href: '/card.pdf', target: '_blank', rel: 'noopener', 'data-visit': 'card' }, icon('doc'), h('span', null, t('st1cta'))),
+    h('div', { class: 'tile precision' }, h('strong', null, t('precisionTitle')), h('p', null, t('precisionText')),
+      h('a', { class: 'link-btn', href: '/card.pdf', target: '_blank', rel: 'noopener', 'data-visit': 'card' }, icon('doc'), h('span', null, t('precisionCta')))),
     h('button', { class: 'link-btn is-danger', type: 'button', onclick: () => { closeSheet('sheet'); setTimeout(confirmErase, 250); } }, icon('trash'), h('span', null, t('eraseAll'))),
     h('p', { class: 'fine' }, t('privacy')), h('p', { class: 'fine' }, t('credits')), h('p', { class: 'fine' }, t('disclaimer')));
   openSheet('sheet');
