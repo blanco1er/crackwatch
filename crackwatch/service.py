@@ -33,6 +33,16 @@ def decode_image(data: bytes) -> np.ndarray:
     return img
 
 
+# Width colour scale, ABSOLUTE so a colour means the same width on every photo (web/app.js widthColor mirrors it):
+# log scale from 0.2 mm (warm yellow) to 5 mm and more (deep red), the "fine" and "wide" ends of the verdict scale.
+W_COLOR_MIN_MM, W_COLOR_MAX_MM = 0.2, 5.0
+
+
+def _width_t(w_mm: float) -> float:
+    w = max(float(w_mm), 1e-6)
+    return float(np.clip(math.log(w / W_COLOR_MIN_MM) / math.log(W_COLOR_MAX_MM / W_COLOR_MIN_MM), 0, 1))
+
+
 def _width_color(t: float):
     # sequential: warm yellow (thin) -> deep red (wide), BGR
     a = np.array([60, 200, 255], np.float32)
@@ -58,12 +68,11 @@ def render_overlay(bgr: np.ndarray, res, focus_region_mm=None) -> bytes:
         for p in card.img_pts * s:
             cv2.circle(out, (int(p[0]), int(p[1])), lw + 1, (255, 170, 60), -1, cv2.LINE_AA)
         comps = dbg.get("comps") or []
-        wmax = max([float(np.percentile(c.get("width_smooth_mm", c["width_mm"]), 98)) for c in comps] or [1.0])
         for c in comps:
             pts = apply_h(H, c["pts_mm"]) * s
             w = c.get("width_smooth_mm", c["width_mm"])
             for (x, y), wi in zip(pts[::2], w[::2]):
-                cv2.circle(out, (int(x), int(y)), lw, _width_color(wi / max(wmax, 1e-6)), -1, cv2.LINE_AA)
+                cv2.circle(out, (int(x), int(y)), lw, _width_color(_width_t(wi)), -1, cv2.LINE_AA)
         if res.cracks:
             cr = res.cracks[0]
             x, y = apply_h(H, [cr["max_location_board_mm"]])[0] * s
@@ -138,11 +147,10 @@ def render_closeup(bgr, res, max_side=960) -> dict | None:
     out = cv2.warpPerspective(bgr, card.H_img_from_board @ A, (W, H), flags=cv2.INTER_AREA | cv2.WARP_INVERSE_MAP,
                               borderMode=cv2.BORDER_CONSTANT, borderValue=(40, 40, 40))
     lw = max(2, int(round(W / 320)))
-    wmax = max([float(np.percentile(c.get("width_smooth_mm", c["width_mm"]), 98)) for c in comps] or [1.0])
     for c in comps:
         w = c.get("width_smooth_mm", c["width_mm"])
         for (px, py), wi in zip((np.asarray(c["pts_mm"]) - (x0, y0)) * r, w):
-            cv2.circle(out, (int(px), int(py)), lw, _width_color(wi / max(wmax, 1e-6)), -1, cv2.LINE_AA)
+            cv2.circle(out, (int(px), int(py)), lw, _width_color(_width_t(wi)), -1, cv2.LINE_AA)
     mx, my = (np.asarray(res.cracks[0]["max_location_board_mm"]) - (x0, y0)) * r
     cv2.circle(out, (int(mx), int(my)), 7 * lw, (255, 255, 255), lw + 1, cv2.LINE_AA)
     ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 82])
@@ -170,6 +178,8 @@ def order_by_centre(res, shape) -> None:
         cr["center_dist"] = round(float(np.min(np.linalg.norm(pts - centre, axis=1)) / diag), 3)
         step = max(1, len(pts) // 80)
         cr["outline_px"] = np.round(pts[::step] * s).astype(int).tolist()
+        w = np.asarray(comps[i].get("width_smooth_mm", comps[i]["width_mm"]), float)
+        cr["outline_w_mm"] = [round(float(v), 2) for v in w[::step]]      # width at each outline point, for colouring
     res.cracks.sort(key=lambda c: c.get("center_dist", 1.0))
 
 

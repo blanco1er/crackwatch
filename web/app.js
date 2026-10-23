@@ -534,6 +534,12 @@ function renderResult() {
   B.push(acts, howMeasured(sh, c));
   root.append(split(A, B));
 }
+// Width colour, absolute log scale 0.2 mm (yellow) -> 5 mm and more (red): mirrors _width_color in crackwatch/service.py
+function widthColor(w) {
+  const t = Math.min(1, Math.max(0, Math.log(Math.max(w, 1e-6) / 0.2) / Math.log(5 / 0.2)));
+  const a = [255, 200, 60], b = [215, 30, 40];
+  return `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * t)).join(',')})`;
+}
 // several ridges measured (joint, wall edge…): the one closest to the photo centre is chosen; tap another to switch
 function candidatesPhoto(c, sh, cands) {
   const [Wp, Hp] = sh.ovSize;
@@ -543,7 +549,15 @@ function candidatesPhoto(c, sh, cands) {
   cands.forEach((cr, i) => {
     const pts = cr.outline_px.map((q) => q.join(',')).join(' ');
     const g = s('g', { class: `cand ${i === 0 ? 'is-on' : ''}`, role: 'button', tabindex: '0', 'aria-pressed': String(i === 0), 'aria-label': t('candAria', { n: i + 1, v: Wt(cr.width_mm.max) }) });
-    g.append(s('polyline', { points: pts, class: 'cand__hit' }), s('polyline', { points: pts, class: 'cand__halo' }), s('polyline', { points: pts, class: 'cand__line' }));
+    g.append(s('polyline', { points: pts, class: 'cand__hit' }), s('polyline', { points: pts, class: 'cand__halo' }));
+    const ws = cr.outline_w_mm;
+    if (i === 0 && ws && ws.length === cr.outline_px.length) {
+      // the chosen crack: each segment coloured by its measured width, same absolute scale as the server's photos
+      for (let k = 1; k < cr.outline_px.length; k++) {
+        const [x1, y1] = cr.outline_px[k - 1]; const [x2, y2] = cr.outline_px[k];
+        g.append(s('line', { x1, y1, x2, y2, class: 'cand__seg', stroke: widthColor((ws[k - 1] + ws[k]) / 2) }));
+      }
+    } else g.append(s('polyline', { points: pts, class: 'cand__line' }));
     const pick = () => chooseCrack(c, sh, cr);
     g.addEventListener('click', pick); g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
     svg.append(g);
