@@ -4,7 +4,7 @@
   "description": "Track a wall crack in millimetres with a printed card and a phone.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F2F2F7",
-  "theme_color": "#F2F2F7",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "icons": [{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }, { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }
