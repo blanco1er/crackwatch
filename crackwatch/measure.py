@@ -672,14 +672,15 @@ def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.
         u_quant = 0.25 / nat
         u_scatter = 1.4826 * mad / math.sqrt(max(1.0, smooth_mm * rect.R / 2))
         u_depth = 0.0 if c["depth_source"] == "resolved" else 0.35 * float(np.median(w))
-        u_scale = card.reproj_rms_px / max(quality.get("card_px_per_mm", nat) * 15.0, 1e-6) * float(np.median(w))
+        u_scale = (card.scale_rel_unc_at(p.mean(0)) if hasattr(card, "scale_rel_unc_at")     # wallet card (idcard.py)
+                   else card.reproj_rms_px / max(quality.get("card_px_per_mm", nat) * 15.0, 1e-6)) * float(np.median(w))
         unc = math.sqrt(u_quant ** 2 + u_scatter ** 2 + u_depth ** 2 + u_scale ** 2)
         conf = 1.0
         conf *= min(1.0, nat / 4.0)                                # resolution
         conf *= 0.6 + 0.4 * res_frac                               # deblurred vs prior-based
         conf *= 1.0 if c["depth_source"] == "resolved" else 0.7
         conf *= max(0.2, 1.0 - quality.get("saturated_frac", 0) * 5)
-        conf *= min(1.0, quality.get("card_corners", 24) / 12.0)
+        conf *= card.confidence if hasattr(card, "confidence") else min(1.0, quality.get("card_corners", 24) / 12.0)
         imax = int(np.argmin(np.abs(wmax_prof - wmax)))
         unres = ~c["resolved"]
         focus_pts = p[unres] if unres.sum() >= 5 else p
@@ -717,18 +718,34 @@ class MeasureResult:
 
 
 def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
-                  seg_params: SegParams = SegParams(), keep_debug=False, paper_rect_mm=None) -> MeasureResult:
+                  seg_params: SegParams = SegParams(), keep_debug=False, paper_rect_mm=None,
+                  reference="charuco") -> MeasureResult:
     """`paper_rect_mm`: board-frame rectangle hidden from the crack search instead of the card's own
-    paper (used for the printed test chart, whose board sits on a larger sheet)."""
+    paper (used for the printed test chart, whose board sits on a larger sheet).
+    `reference`: "charuco" (printed card), "idcard" (any bank/loyalty card, see idcard.py) or "auto"
+    (ChArUco if found, else a wallet card). A wallet card found but unusable gives "reference_rejected"
+    with quality["retake_reason"]."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
-    card = detect_card(gray)
+    card = detect_card(gray) if reference != "idcard" else None
+    ref = None
+    if card is None and reference in ("idcard", "auto"):
+        from .idcard import detect_idcard
+        card, ref = detect_idcard(bgr)
     q = estimate_quality(gray, card)
+    if ref is not None:
+        q.update(ref.quality_fields())
     if card is None:
-        return MeasureResult("no_card", q)
+        res = MeasureResult("reference_rejected" if ref is not None and ref.rejected else "no_card", q)
+        if keep_debug and ref is not None:
+            res.debug = {"redact_polys_img": ref.redact_polys_img}
+        return res
     rect = rectify(gray, card, R=R, extent=extent, exclude_rects_mm=exclude_rects_mm, paper_rect_mm=paper_rect_mm)
     seg = segment(rect, seg_params)
     card_info = {"spec": card.spec.name, "corners": card.n_corners, "reproj_rms_px": round(card.reproj_rms_px, 3),
-                 "H_img_from_board": card.H_img_from_board.tolist(), "rectified_px_per_mm": rect.R}
+                 "H_img_from_board": card.H_img_from_board.tolist(), "rectified_px_per_mm": rect.R,
+                 "reference": getattr(card, "reference", "charuco")}
+    if hasattr(card, "public_info"):
+        card_info.update(card.public_info())
     if seg is None:
         return MeasureResult("no_search_area", q, card_info)
     comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board)

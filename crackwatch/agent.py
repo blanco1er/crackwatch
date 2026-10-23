@@ -81,7 +81,14 @@ def decide_next_action(obs: dict, state: AgentState, policy: Policy = Policy()) 
     can_retake = state.retakes < policy.max_retakes
 
     # 1. photo usability
-    if obs.get("status") == "no_card":
+    if obs.get("status") in ("no_card", "reference_rejected"):
+        if can_retake and q.get("retake_reason"):        # wallet card (idcard.py): its own reason + instruction
+            args = {"reason": q["retake_reason"], "instruction": q.get("retake_instruction", "")}
+            if q.get("card_occluded_edge"):
+                args["edge"] = q["card_occluded_edge"]
+            if q.get("card_occluded_corners"):
+                args["corner"] = q["card_occluded_corners"][0]
+            return Action("request_retake", args, q.get("retake_detail") or q["retake_reason"])
         if can_retake:
             return Action("request_retake", {"reason": "card_not_found",
                                              "instruction": "Frame the whole ChArUco card and the crack; avoid reflections on the card."},
@@ -162,8 +169,14 @@ class RulePlanner:
 TOOL_SCHEMAS = [
     {"name": "request_retake", "description": "Ask the inspector for a new photo because the current one is unusable.",
      "input_schema": {"type": "object", "additionalProperties": False, "required": ["reason", "instruction"],
-                      "properties": {"reason": {"type": "string", "enum": ["card_not_found", "blur", "glare", "oblique"]},
-                                     "instruction": {"type": "string"}}}},
+                      "properties": {"reason": {"type": "string", "enum": ["card_not_found", "blur", "glare", "oblique", "card_cut_by_frame",
+                                                                     "card_too_small", "card_too_oblique", "card_occluded",
+                                                                     "card_not_flat", "card_wrong_size"]},
+                                     "instruction": {"type": "string"},
+                                     "edge": {"type": "string", "enum": ["left", "right", "top", "bottom"],
+                                              "description": "wallet card edge hidden (card_occluded)"},
+                                     "corner": {"type": "string", "enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
+                                                "description": "wallet card corner hidden (card_occluded)"}}}},
     {"name": "request_closer_photo", "description": "Active perception: ask for a closer photo of a board-frame region (mm) where the width is not resolved.",
      "input_schema": {"type": "object", "additionalProperties": False, "required": ["region_board_mm", "zoom_factor", "instruction"],
                       "properties": {"region_board_mm": {"type": "array", "items": {"type": "number"}},

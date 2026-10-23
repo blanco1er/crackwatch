@@ -13,6 +13,7 @@ import numpy as np
 
 from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
+from .idcard import redact_reference
 from .measure import apply_h, measure_image
 
 MAX_SIDE = 4032          # longer photo side kept for measurement (12 MP phone photos pass unchanged)
@@ -129,18 +130,22 @@ def public_measurement(res) -> dict:
     j = res.to_json()
     card = j.get("card") or {}
     return _round({"status": j["status"], "quality": {k: j["quality"].get(k) for k in
-                   ("blur_sigma_px", "saturated_frac", "tilt_deg_est", "card_px_per_mm", "card_corners", "card_reproj_rms_px")
+                   ("blur_sigma_px", "saturated_frac", "tilt_deg_est", "card_px_per_mm", "card_corners", "card_reproj_rms_px",
+                    "reference", "retake_reason", "card_occluded_edge", "card_occluded_corners", "scale_rel_unc")
                    if k in j["quality"]},
-                   "card": {k: card.get(k) for k in ("spec", "corners", "reproj_rms_px", "rectified_px_per_mm")} if card else None,
+                   "card": {k: card.get(k) for k in ("spec", "corners", "reproj_rms_px", "rectified_px_per_mm", "reference",
+                                                     "scale_rel_unc", "confidence", "rebuilt_edge") if k in card} if card else None,
                    "cracks": j["cracks"][:3], "n_cracks": len(j["cracks"])})
 
 
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
-            inspection_id: str | None = None, log=lambda *_: None) -> dict:
-    """Run one inspection. `retakes` = photos already re-requested in this visit (client-held)."""
+            inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto") -> dict:
+    """Run one inspection. `retakes` = photos already re-requested in this visit (client-held).
+    `reference`: "auto" (printed ChArUco card if present, else a wallet card), "charuco" or "idcard"."""
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
-    res = measure_image(current, keep_debug=True)
+    res = measure_image(current, keep_debug=True, reference=reference)
+    current = redact_reference(current, res)       # wallet card numbers never leave in a returned image
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
     state = AgentState(inspection_id, previous_inspection_id="previous-visit" if previous is not None else None,
@@ -149,13 +154,14 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
 
     def do_compare(args, st):
         t1 = time.time()
-        prev = measure_image(previous, keep_debug=True)
+        prev = measure_image(previous, keep_debug=True, reference=reference)
         st.comparison = compare(prev, res)
         timings["compare_ms"] = round(1000 * (time.time() - t1))
         out["comparison"] = _round({k: v for k, v in st.comparison.items() if k != "T_board1_from_board2"})
         out["previous_measurement"] = public_measurement(prev)
         if st.comparison.get("status") == "ok":
-            out["before_after"] = render_before_after(previous, prev, current, res, st.comparison["T_board1_from_board2"])
+            out["before_after"] = render_before_after(redact_reference(previous, prev), prev, current, res,
+                                                      st.comparison["T_board1_from_board2"])
         return obs
 
     def wait_for_inspector(args, st):

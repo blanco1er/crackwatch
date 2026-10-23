@@ -191,7 +191,8 @@ class App:
         except Exception as e:  # missing / expired upload
             return err("image_unavailable", 400, type(e).__name__)
         planner = self.planner_factory(self.llm_allowed) if self.planner_factory else None
-        out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner)
+        ref = data.get("reference") if data.get("reference") in ("auto", "charuco", "idcard") else "auto"
+        out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner, reference=ref)
         out["source"] = cur_src
         names = [t["action"]["name"] for t in out["trace"]]
         planners = sorted({t["action"]["planner"] for t in out["trace"]})
