@@ -261,3 +261,7 @@ textarea.field { min-height: 96px; resize: vertical; }
   .photo.is-scanning .scan { animation: none; transform: none; opacity: 0.6; }
   .ticks .is-wait:first-child .tick { animation: none; }
 }
+
+.photo img.is-cover { object-fit: cover; }
+.tabbar a { white-space: nowrap; padding: 0 20px; }
+.crack-card .hero { flex-wrap: nowrap; }

@@ -214,7 +214,7 @@ function newExample() {
   data.cracks = data.cracks.filter((x) => x.id !== EX_ID); data.cracks.unshift(c); save();
   return c;
 }
-async function dropImages(c) { for (const sh of allShots(c)) { if (sh.img) await idb.del(sh.img); if (sh.ba) await idb.del(sh.ba); } }
+async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba]) if (k) await idb.del(k); } }
 let inflight = false;
 async function startExample() {
   if (inflight) return;
@@ -245,18 +245,20 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
   const id = uid();
   const imgKey = `ov-${id}`;
   await idb.put(imgKey, `data:image/jpeg;base64,${d.overlay_jpeg_b64}`);
+  let cuKey = null;
+  if (d.closeup && d.closeup.jpeg_b64) { cuKey = `cu-${id}`; await idb.put(cuKey, `data:image/jpeg;base64,${d.closeup.jpeg_b64}`); }
   let baKey = null;
   if (d.before_after) { baKey = `ba-${id}`; await idb.put(baKey, JSON.stringify({ before: `data:image/jpeg;base64,${d.before_after.before_jpeg_b64}`, after: `data:image/jpeg;base64,${d.before_after.after_jpeg_b64}` })); }
   const last = d.trace[d.trace.length - 1].action;
   const sh = { id, at, source, key, status: d.measurement.status, decision: { name: last.name, args: last.args, planner: last.planner, reason: last.reason },
     trace: d.trace, quality: d.measurement.quality, card: d.measurement.card, cracks: d.measurement.cracks, comparison: d.comparison,
     ticket: d.ticket ? { id: d.ticket.id, severity: d.ticket.severity, evidence: d.ticket.evidence, status: 'pending_human_approval' } : null,
-    timings: d.timings_ms, llm: d.llm, img: imgKey, ba: baKey, truth: gt, inspectionId: d.inspection_id };
+    timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, truth: gt, inspectionId: d.inspection_id };
   let v;
   if (visitIndex != null) {
     v = c.visits[visitIndex];
     const same = v.shots.findIndex((x) => x.source === source);
-    if (same >= 0) { const o = v.shots[same]; if (o.img) idb.del(o.img); if (o.ba) idb.del(o.ba); v.shots.splice(same, 1); }
+    if (same >= 0) { const o = v.shots[same]; if (o.img) idb.del(o.img); if (o.cu) idb.del(o.cu); if (o.ba) idb.del(o.ba); v.shots.splice(same, 1); }
   } else {
     const lv = c.visits[c.visits.length - 1]; const ls = lv && lv.shots[lv.shots.length - 1];
     const sameVisit = ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && at - ls.at < 12 * 3600000;
@@ -385,7 +387,7 @@ function pipeline(d) {
     { ok: !!m.card, label: m.card ? t('pCard') : t('pNoCard'), detail: m.card ? t('pCardD', { n: m.card.corners }) : '' },
     { ok: !!m.card, skip: !m.card, label: t('pStraight'), detail: m.card ? t('pStraightD', { ppm: num(q.card_px_per_mm, 1) }) : '' },
     { ok: sharp, skip: !m.card, label: sharp ? t('pSharp') : t('pBlurry'), detail: m.card ? t('pSharpD', { b: num(q.blur_sigma_px, 1) }) : '' },
-    { ok: !!cr, skip: !m.card || !sharp, label: cr ? t('pTraced') : t('pNoCrack'), detail: '' },
+    { ok: !!cr, skip: !m.card || !sharp, label: cr || !m.card || !sharp ? t('pTraced') : t('pNoCrack'), detail: '' },
     { ok: !!cr, skip: !cr, label: t('pWidth'), detail: cr ? t('pWidthD', { v: Wt(cr.width_mm.max) }) : '' },
   ];
   if (d.comparison) steps.push({ ok: d.comparison.status === 'ok', label: t('pCompared'), detail: d.comparison.status === 'ok' ? Wt(d.comparison.width_delta_mm.median, { sign: true }) : '' });
@@ -397,7 +399,8 @@ function renderAnalyze() {
   if (!R) return go('measure');
   root.textContent = '';
   const c = crackById(R.crackId); const ex = R.mode === 'example';
-  const head = h('div', { class: 'an-head' }, h('h1', { class: 'title' }, R.phase === 'measuring' ? t('aMeasuring') : R.phase === 'error' ? t('aStopped') : t('aDone')));
+  const vNow = R.phase === 'done' ? verdict(R.shot, c) : null;
+  const head = h('div', { class: 'an-head' }, h('h1', { class: 'title' }, R.phase === 'measuring' ? t('aMeasuring') : R.phase === 'error' ? t('aStopped') : vNow && vNow.kind === 'retake' ? t('aRetake') : t('aDone')));
   if (ex) head.append(h('span', { class: 'badge-example' }, t('exampleBadge')));
   root.append(head);
   if (ex) {
@@ -452,8 +455,8 @@ function renderResult() {
   if (!sh) return go('measure');
   const v = verdict(sh, c); const cr = sh.cracks && sh.cracks[0];
   if (c.example) root.append(h('span', { class: 'badge-example' }, t('exampleBadge')));
-  const frame = h('div', { class: 'photo' });
-  const im = h('img', { alt: t('overlayAlt') }); setImg(im, sh.img); frame.append(im);
+  const frame = h('div', { class: `photo ${sh.cu ? 'photo--wide' : ''}` });
+  const im = h('img', { alt: t('overlayAlt'), class: sh.cu ? 'is-cover' : '' }); setImg(im, sh.cu || sh.img); frame.append(im);
   root.append(frame, h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend')));
   if (cr) {
     root.append(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }));
@@ -494,8 +497,8 @@ function howMeasured(sh) {
 // ------------------------------------------------------------------ 4 · MY CRACKS + crack detail
 function thumb(c) {
   const img = h('img', { alt: '', class: 'thumb' });
-  const sh = [...allShots(c)].reverse(); const ba = sh.find((x) => x.ba); const ov = sh.find((x) => x.img);
-  if (ba) idb.get(ba.ba).then((v) => { if (v) img.src = JSON.parse(v).after; }); else if (ov) setImg(img, ov.img);
+  const sh = [...allShots(c)].reverse(); const cu = sh.find((x) => x.cu); const ba = sh.find((x) => x.ba); const ov = sh.find((x) => x.img);
+  if (cu) setImg(img, cu.cu); else if (ba) idb.get(ba.ba).then((v) => { if (v) img.src = JSON.parse(v).after; }); else if (ov) setImg(img, ov.img);
   return img;
 }
 function renderCracks() {

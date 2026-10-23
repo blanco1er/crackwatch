@@ -14,7 +14,7 @@ export const T = {
     st3t: 'Take the photo', st3d: 'Card and crack together, facing the wall, without flash.',
     privacy: 'Your photo is sent to a private server for measuring and deleted after 24 hours. Location data is removed. Your results stay on this phone.',
     // 2 · analysis
-    aMeasuring: 'Measuring…', aDone: 'Measured', aStopped: 'Measuring stopped',
+    aMeasuring: 'Measuring…', aRetake: 'Another photo needed', aDone: 'Measured', aStopped: 'Measuring stopped',
     aWait: 'Usually a few seconds.', aWaitCold: 'Waking up the measuring server, about 10 seconds.', uploading: 'Sending the photo…',
     pCard: 'Card found', pNoCard: 'Card not found', pCardD: ({ n }) => `${n} reference points`,
     pStraight: 'Photo straightened', pStraightD: ({ ppm }) => `${ppm} pixels per mm`,
@@ -108,7 +108,7 @@ export const T = {
     st2t: 'Posez-la près de la fissure', st2d: 'Collez-la à plat sur le mur, à quelques centimètres de la fissure.',
     st3t: 'Prenez la photo', st3d: 'La carte et la fissure ensemble, face au mur, sans flash.',
     privacy: 'Votre photo est envoyée à un serveur privé pour la mesure, puis effacée au bout de 24 heures. La position est supprimée. Vos résultats restent sur ce téléphone.',
-    aMeasuring: 'Mesure en cours…', aDone: 'Mesure terminée', aStopped: 'Mesure interrompue',
+    aMeasuring: 'Mesure en cours…', aRetake: 'Il faut une autre photo', aDone: 'Mesure terminée', aStopped: 'Mesure interrompue',
     aWait: 'En général quelques secondes.', aWaitCold: 'Réveil du serveur de mesure, environ 10 secondes.', uploading: 'Envoi de la photo…',
     pCard: 'Carte trouvée', pNoCard: 'Carte introuvable', pCardD: ({ n }) => `${n} points de repère`,
     pStraight: 'Photo redressée', pStraightD: ({ ppm }) => `${ppm} pixels par mm`,

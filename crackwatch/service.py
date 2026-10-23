@@ -115,6 +115,41 @@ def render_before_after(prev_bgr, prev_res, cur_bgr, cur_res, T_board1_from_boar
     return out
 
 
+def render_closeup(bgr, res, max_side=960) -> dict | None:
+    """The photo straightened in the card frame and cropped around the crack, with the traced crack coloured by
+    width (yellow thin -> red wide) and the widest point ringed: what the app shows as the result photo."""
+    try:
+        card = res.debug["card"]
+        comps = res.debug["comps"]
+        pts = np.vstack([c["pts_mm"] for c in comps])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if not len(pts) or not res.cracks:
+        return None
+    bx0, by0, bx1, by1 = res.cracks[0]["bbox_board_mm"]          # frame the main crack, not every ridge found
+    (x0, y0), (x1, y1) = (bx0 - 10.0, by0 - 10.0), (bx1 + 10.0, by1 + 10.0)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    wmm = float(min(max(x1 - x0, 1.5 * (y1 - y0), 45.0), 150.0))
+    hmm = wmm / 1.5
+    x0, y0 = cx - wmm / 2, cy - hmm / 2
+    r = max_side / wmm
+    W, H = int(round(wmm * r)), int(round(hmm * r))
+    A = np.array([[1 / r, 0, x0], [0, 1 / r, y0], [0, 0, 1]], np.float64)
+    out = cv2.warpPerspective(bgr, card.H_img_from_board @ A, (W, H), flags=cv2.INTER_AREA | cv2.WARP_INVERSE_MAP,
+                              borderMode=cv2.BORDER_CONSTANT, borderValue=(40, 40, 40))
+    lw = max(2, int(round(W / 320)))
+    wmax = max([float(np.percentile(c.get("width_smooth_mm", c["width_mm"]), 98)) for c in comps] or [1.0])
+    for c in comps:
+        w = c.get("width_smooth_mm", c["width_mm"])
+        for (px, py), wi in zip((np.asarray(c["pts_mm"]) - (x0, y0)) * r, w):
+            cv2.circle(out, (int(px), int(py)), lw, _width_color(wi / max(wmax, 1e-6)), -1, cv2.LINE_AA)
+    mx, my = (np.asarray(res.cracks[0]["max_location_board_mm"]) - (x0, y0)) * r
+    cv2.circle(out, (int(mx), int(my)), 7 * lw, (255, 255, 255), lw + 1, cv2.LINE_AA)
+    ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 82])
+    return {"jpeg_b64": base64.b64encode(buf.tobytes()).decode(), "window_board_mm": [round(float(v), 1) for v in (x0, y0, x0 + wmm, y0 + hmm)],
+            "px_per_mm": round(float(r), 3), "size_px": [W, H]}
+
+
 def _round(o, nd=3):
     if isinstance(o, float):
         return round(o, nd) if math.isfinite(o) else None
@@ -177,6 +212,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         out["next_visit_days"] = last["args"].get("days")
     out.update({"measurement": public_measurement(res), "trace": _round(trace),
                 "overlay_jpeg_b64": base64.b64encode(render_overlay(current, res, focus)).decode(),
+                "closeup": render_closeup(current, res) if last["name"] not in ("request_retake",) else None,
                 "timings_ms": dict(timings, total_ms=round(1000 * (time.time() - t0))),
                 "llm": {"calls": sum(1 for t in trace if t["action"].get("meta", {}).get("input_tokens")),
                         "cost_usd": round(sum(t["action"].get("meta", {}).get("cost_usd", 0) or 0 for t in trace), 6)}})
