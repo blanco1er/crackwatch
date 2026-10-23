@@ -53,10 +53,18 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js",
           "/vendor/jspdf.umd.min.js": ("vendor/jspdf.umd.min.js", "text/javascript; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
-          "/favicon.svg": ("favicon.svg", "image/svg+xml")}
+          "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+          # guided camera (camera-guidee): lazy-loaded when the camera opens
+          "/camera.js": ("camera.js", "text/javascript; charset=utf-8"), "/camera.css": ("camera.css", "text/css; charset=utf-8"),
+          "/camera-worker.js": ("camera-worker.js", "text/javascript; charset=utf-8"),
+          "/camera-detect.js": ("camera-detect.js", "text/javascript; charset=utf-8")}
+# OpenCV.js 4.12.0 (pinned, Apache-2.0), stored pre-gzipped: 10.9 MB -> 3.5 MB, under the Lambda 6 MB response cap
+OPENCV_JS = ("/vendor/opencv-4.12.0.js", "vendor/opencv-4.12.0.js.gz")
 
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "connect-src 'self' https://*.amazonaws.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+# The camera worker runs OpenCV.js (WebAssembly + Emscripten embind, which needs eval): allowed in the worker only.
+WORKER_CSP = "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self' data:; base-uri 'none'"
 
 
 class Response:
@@ -102,8 +110,12 @@ class App:
     def _route(self, method, path, h, body, query, ip):
         if method == "GET" and path in STATIC:
             name, ctype = STATIC[path]
-            extra = {"content-security-policy": CSP, "x-content-type-options": "nosniff", "referrer-policy": "strict-origin-when-cross-origin"}
+            extra = {"content-security-policy": WORKER_CSP if path == "/camera-worker.js" else CSP,
+                     "x-content-type-options": "nosniff", "referrer-policy": "strict-origin-when-cross-origin"}
             return self._file(os.path.join(WEB_DIR, name), ctype, "no-cache" if path == "/" else "public, max-age=300", extra)
+        if method == "GET" and path == OPENCV_JS[0]:
+            return self._file(os.path.join(WEB_DIR, OPENCV_JS[1]), "application/javascript", "public, max-age=31536000, immutable",
+                              {"content-encoding": "gzip", "x-content-type-options": "nosniff", "vary": "accept-encoding"})
         if method == "GET" and path.startswith("/samples/"):
             name = path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"(blurry|far|close|visit2|real)\.jpg|samples\.json", name):

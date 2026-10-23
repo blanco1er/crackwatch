@@ -303,7 +303,15 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
 }
 
 // ------------------------------------------------------------------ own photo
-function pickFile(crackId = null) { S.pending = crackId; const f = $('#fileInput'); f.value = ''; f.click(); }
+// >>> guided camera (branch camera-guidee): live camera with framing hints + auto-capture; file picker as fallback
+function pickFile(crackId = null) {
+  S.pending = crackId;
+  const picker = () => { const f = $('#fileInput'); f.value = ''; f.click(); };
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return picker();
+  import('/camera.js').then(({ openGuidedCamera }) => openGuidedCamera({ lang, onPhoto: (file) => measureOwn(file), onCancel: () => {} }))
+    .catch(picker);
+}
+// <<< guided camera
 async function measureOwn(file) {
   if (inflight) return;
   if (file.size > 15 * 1024 * 1024) { toast({ title: t('tooBig'), tone: 'critical' }); return; }
