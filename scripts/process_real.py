@@ -34,7 +34,7 @@ from crackwatch.service import render_overlay  # noqa: E402
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 EXTS = (".jpg", ".jpeg", ".png", ".heic", ".heif")
-MIRE_BOARD_RECT = (-3.0, -3.0, 78.0, 108.0)    # the chart's board area, hidden from the crack search
+MIRE_BOARD_RECT = (-3.0, -3.0, 75.0, 108.0)    # the chart board (75 x 105 mm), hidden from the crack search; rectify() adds 4 mm, so bar L1 at x = 82 mm stays searchable
 
 
 def f(v, spec=".3f", suffix=""):
