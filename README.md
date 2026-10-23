@@ -22,9 +22,9 @@ with the printed card). Source: https://github.com/blanco1er/crackwatch (MIT).
 | Scale | `cv2.aruco.CharucoDetector.detectBoard`, `CharucoBoard.matchImagePoints`, `cv2.findHomography(USAC_MAGSAC)` | Board frame in millimetres; A6 card (5×7 squares of 15 mm) or A5 card |
 | Quality | Sobel on the card's step edges, saturation outside the card, tilt from the homography | Blur measured **in pixels** (Gaussian σ) on the card itself |
 | Rectification | `cv2.warpPerspective` into the card frame | Resolution chosen from the native px/mm |
-| Segmentation | 8-bit median background, multi-scale Hessian ridge (`GaussianBlur` + `Sobel`), hysteresis with `connectedComponentsWithStats`, shape filters, Zhang–Suen thinning | `cv2.ximgproc` is contrib-only in OpenCV 5, so thinning is implemented in NumPy |
-| Width | Perpendicular profiles (`cv2.remap`, 0.25 px steps), each **deconvolved with the blur measured on the card** (box ⊗ Gaussian model) | Output: median / P90 / sustained max (P95 over 6 mm), 1σ uncertainty, confidence, minimum measurable width |
-| Change | Same card frame, or ORB + `findHomography(USAC_MAGSAC)` + `findTransformECC` (band-passed) if the card was re-glued | Widening and new length; a segment is "new" only if visit 1 shows no ridge there |
+| Segmentation | 8-bit median background, multi-scale Hessian ridge (`GaussianBlur` + `Sobel`, σ 0.2–3.4 mm), hysteresis with `connectedComponentsWithStats` (weak pixels must also be ≥ 3 % darker than their background), shape filters, Zhang–Suen thinning | `cv2.ximgproc` is contrib-only in OpenCV 5, so thinning is implemented in NumPy |
+| Width | Perpendicular profiles (`cv2.remap`, 0.25 px steps), each **deconvolved with the blur measured on the card** (box ⊗ Gaussian model); the local background is read in a 1 mm band on each side of the blurred edges, so a neighbouring dark line cannot narrow the width | Output: median / P90 / sustained max (P95 over 6 mm), 1σ uncertainty, confidence, minimum measurable width, view angle across the crack; summary over a fixed monitoring zone (card sheet + 40 mm, card frame) |
+| Change | Same card frame, or ORB + `findHomography(USAC_MAGSAC)` + `findTransformECC` (band-passed) if the card was re-glued | Widening tested on the whole crack **and on each ~10 mm stretch** (z-test with point scatter + each photo's systematic error, Bonferroni 5 % per pair, ≥ 0.1 mm); new length; a segment is "new" only if visit 1 shows no ridge there |
 | Decision | Tool use through the Bedrock Converse API; rule policy as validator and fallback | Every step traced (tool, reason, model, latency, tokens, cost) |
 
 ![Agent flow](docs/agent-flow.png)
@@ -39,33 +39,47 @@ All numbers below are produced by scripts in this repository. **Synthetic** and 
 ### Synthetic (held-out set: seeds 20000+, never used for tuning; 300 single photos, 40 two-visit pairs)
 
 Procedural concrete, cracks of 0.2–5 mm, 3–9 px/mm, tilt 0–45°, blur, JPEG, glare, motion blur, stains and joints.
-Full tables and the list of all 92 failure cases: [`eval/RESULTS.md`](eval/RESULTS.md).
+Full tables and the list of all 69 failure cases: [`eval/RESULTS.md`](eval/RESULTS.md). Numbers before the 23 Oct measurement fixes in brackets.
 
 | Metric (E1) | Value |
 |---|---|
 | Card detected | 299/300 (99.7 %) |
-| Crack detected (≥ 10 matched points) | 259/300 (86.3 %); 30 of the 41 misses are cracks < 0.5 mm |
-| Point-wise width MAE | **0.21 mm** (median absolute error 0.10 mm) |
-| Same, pixel-level distance-transform baseline | 0.44 mm |
-| Per-image median-width MAE | **0.17 mm** |
-| Per-image sustained max-width MAE | 0.37 mm (bias +0.27 mm: over-estimation) |
-| Announced uncertainty covers the error (≤ 2σ) | 71 % of images (under-estimated) |
+| Crack detected (≥ 10 matched points) | 258/300 (86.0 %) [259] |
+| Point-wise width MAE | **0.15 mm** (median absolute error 0.07 mm) [0.21 / 0.10] |
+| Same, pixel-level distance-transform baseline | 0.39 mm |
+| Per-image median-width MAE | **0.12 mm** [0.17] |
+| Per-image sustained max-width MAE | 0.26 mm (bias +0.13 mm: over-estimation) [0.37, +0.27] |
+| Announced uncertainty covers the error (≤ 2σ) | 83 % of images (still under-estimated) [71 %] |
 
 | Metric (E4, two visits) | Value |
 |---|---|
 | Registration error, card left in place / card re-glued | 0.00 / 0.04 mm (median) |
-| Widening MAE (true widening 0–1 mm) | **0.07 mm** |
-| Change alert precision / recall; false alerts on unchanged pairs | 1.00 / 0.94; 0/8 |
+| Widening MAE (true widening 0–1 mm) | **0.08 mm** [0.07] |
+| Change alert precision / recall; false alerts on unchanged pairs | 1.00 / 0.80; 0/8 [1.00 / 0.94]. Widening flagged: 0.1 mm 60 %, 0.2 mm 50 %, ≥ 0.3 mm 100 % [100 / 83 / 100 %]: the old test was over-confident (fixed 0.04 mm floor); the new one is calibrated (`scripts/calib_sys.py`, synthetic pairs outside the test set) |
 
-On the tuning set (seeds 1000–1299) the median-width MAE was 0.10 mm and the max-width MAE 0.27 mm: the
-generalisation gap is reported, not hidden. The evaluation was re-run from scratch on 19 Oct 2026 and
-reproduced the same numbers.
+On the tuning set (seeds 1000–1299) the median-width MAE was 0.10 mm and the max-width MAE 0.27 mm (before the
+23 Oct fixes): the generalisation gap is reported, not hidden. The 23 Oct changes were made for physical reasons
+found on the real photos, checked on this held-out set, and no threshold was re-tuned.
 
 ### Real photos
 
 Printed test chart (8 bars of known width, 0.2–3 mm) photographed at 3 distances × 3 angles × 2 lightings, its
 "second visit" version (3 bars widened, 2 extended), and two real cracks (repeatability):
 **REAL_RESULTS** — produced by `scripts/process_real.py`, see `eval_real/RESULTS.md`.
+
+Measurement fixes of 23 Oct 2026, each found on the real photos and explainable in one sentence:
+- **Wide widths were under-estimated** (2.0 mm bar read 1.83 mm, 3.0 mm bar often lost): each profile's background
+  was read at the far ends of the profile, which reached the next bar. It is now read just outside the crack's
+  blurred edges. Ridge scales go up to 3.4 mm and darkness tests use the brighter of a 12 mm and a 24 mm median,
+  so cracks up to ~10 mm keep a centred skeleton (`tests/test_wide.py`: 1–8 mm bars within 0.03 mm).
+- **The 0.2 mm bar was never detected** because the chart's board mask plus its 4 mm margin covered it, not
+  because of resolution.
+- **Local widening was invisible**: significance was tested on the median of the whole crack network. It is now
+  tested on the whole crack and on each ~10 mm stretch, with a calibrated uncertainty.
+- **Repeatability on real cracks** depends mostly on the viewing angle across the crack (a deep crack's lip hides
+  part of it): on crack A, photos within 6° of square read 4.1–4.3 mm, photos at 13–22° read 2.8–3.3 mm. The
+  view angle is now reported for every crack; an agent rule to request a square retake exists but is off by
+  default (its 10° threshold has not been validated on independent photos).
 
 ### Failure cases (shown, not hidden)
 
@@ -74,6 +88,10 @@ Printed test chart (8 bars of known width, 0.2–3 mm) photographed at 3 distanc
   reporting a number.
 - Long straight dark lines (tile joints) are filtered by shape and can hide a real straight crack.
 - The homography assumes a planar wall around the card; curved surfaces are out of scope.
+- A single photo measures the *apparent* width: for a deep crack seen at an angle, one lip hides part of it.
+- Any long dark line (wall edge, mortar joint) near the card enters the monitoring zone; the zone fixes *where*
+  the width is read, not *what* is read.
+- One photo per visit cannot reliably show widening below ~0.3 mm (calibrated per-photo systematic error).
 - An experimental spur-pruning step (`SegParams.prune_short_mm`, off by default) improved the max-width error
   on the tuning set (0.266 → 0.251 mm) but lowered crack coverage (0.85 → 0.75), so it was not adopted.
 
