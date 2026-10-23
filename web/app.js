@@ -520,7 +520,12 @@ function decisionWhy(sh) {
   const a = sh.decision || {}; const q = sh.quality || {}; const cr = sh.cracks && sh.cracks[0];
   if (a.name === 'request_retake') return t(`why_${a.args?.reason || 'blur'}`, { blur: num(q.blur_sigma_px, 1), sat: num(100 * (q.saturated_frac || 0), 1), tilt: num(q.tilt_deg_est, 0) });
   if (a.name === 'request_closer_photo') return cr ? t('why_closer', { px: num(cr.width_mm.median * cr.native_px_per_mm, 1) }) : t('why_closer_none');
-  if (a.name === 'schedule_next_visit') return t('why_fine', { v: cr ? Wt(cr.width_mm.max) : '—', th: Wt(1.0), days: a.args?.days ?? 90 });
+  if (a.name === 'schedule_next_visit') {
+    if (!cr) return t('why_fine_none', { days: a.args?.days ?? 90 });
+    const low = cr.width_mm.max - 2 * cr.uncertainty_mm;
+    if (cr.width_mm.max >= 1.0) return t('why_fine_near', { v: Wt(cr.width_mm.max), low: Wt(low), th: Wt(1.0), days: a.args?.days ?? 30 });
+    return t('why_fine', { v: Wt(cr.width_mm.max), th: Wt(1.0), days: a.args?.days ?? 90 });
+  }
   if (a.name === 'propose_ticket') {
     const c = sh.comparison; const parts = [];
     if (c && c.status === 'ok') parts.push(t('why_ticket_widen', { d: Wt(c.width_delta_mm.median, { sign: true }), u: Wt(2 * c.delta_uncertainty_mm) }));
@@ -541,7 +546,7 @@ function inspectorCard(c, sh, { inCrack = false, onNext } = {}) {
   card.append(h('h3', { class: 'inspector__title' }, decisionTitle(sh)));
   if (sh.error) { card.append(h('p', { class: 'inspector__why' }, sh.error.message)); return card; }
   card.append(h('p', { class: 'inspector__why' }, decisionWhy(sh)));
-  const instr = sh.decision?.args?.instruction;
+  const instr = localInstruction(sh.decision?.args?.instruction);
   if (instr) card.append(h('p', { class: 'inspector__instr' }, icon('info'), h('span', null, `“${instr}”`)));
   const acts = h('div', { class: 'inspector__actions' });
   if (sh.ticket) acts.append(h('button', { class: `ui-button ${sh.ticket.status === 'pending_human_approval' ? 'ui-button--prominent' : 'ui-button--tinted'}`, type: 'button', onclick: () => openTicket(c.id, sh.id) }, icon('ticket'), h('span', null, sh.ticket.status === 'pending_human_approval' ? t('reviewTicket') : t('viewTicket'))));
@@ -553,6 +558,15 @@ function inspectorCard(c, sh, { inCrack = false, onNext } = {}) {
   if (acts.childNodes.length) card.append(acts);
   card.append(traceBlock(sh));
   return card;
+}
+// the rule policy's instructions are fixed English sentences: show them in the interface language
+const RULE_INSTR = { 'Hold still, tap to focus on the crack, use more light.': 'instr_blur', 'Turn off the flash or step sideways to remove the glare.': 'instr_glare',
+  'Face the wall more directly.': 'instr_oblique', 'Frame the whole ChArUco card and the crack; avoid reflections on the card.': 'instr_card' };
+function localInstruction(s) {
+  if (!s) return s;
+  if (RULE_INSTR[s]) return t(RULE_INSTR[s]);
+  const m = s.match(/^Move about ([\d.]+)x closer to the highlighted part of the crack, card still visible\.$/);
+  return m ? t('instr_closer', { z: num(+m[1], 1) }) : s;
 }
 function decidedBy(sh) {
   const ps = [...new Set((sh.trace || []).map((x) => x.action.planner))];
@@ -795,10 +809,11 @@ async function measureOwn(crackId, file) {
     visit('upload');
     S.run.uploading = false; renderInspect();
     // the server only keeps photos 24 h: compare on the server with the last measured photo if it is still there
-    const prevShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.key && Date.now() - x.at < 23 * 3600000);
     const lv = c.visits[c.visits.length - 1]; const ls = lastShot(c);
-    const retakes = ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && Date.now() - ls.at < 12 * 3600000 ? lv.shots.filter((x) => ['request_retake', 'request_closer_photo'].includes(x.decision?.name)).length : 0;
-    const d = await api('/api/inspect', { image: { key: up.key }, previous: prevShot && prevShot.visitId !== lv?.id ? { key: prevShot.key } : null, retakes });
+    const sameVisit = !!(ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && Date.now() - ls.at < 12 * 3600000);
+    const prevShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.key && Date.now() - x.at < 23 * 3600000 && !(sameVisit && x.visitId === lv.id));
+    const retakes = sameVisit ? lv.shots.filter((x) => ['request_retake', 'request_closer_photo'].includes(x.decision?.name)).length : 0;
+    const d = await api('/api/inspect', { image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes });
     warm = true;
     const sh = await recordShot(c, d, { source: 'upload', key: up.key });
     S.run = { ...S.run, phase: 'done', result: d, shot: sh };
@@ -945,7 +960,7 @@ function openHelp() {
   b.textContent = '';
   const sec = (title, ...kids) => h('section', { class: 'help-sec' }, h('h3', { class: 'ui-headline' }, title), ...kids);
   b.append(sec(t('hStart'), h('ol', { class: 'help-ol' }, h('li', null, rich(t('hStart1'))), h('li', null, rich(t('hStart2'))), h('li', null, rich(t('hStart3'))))));
-  b.append(sec(t('hStatus'), h('ul', { class: 'help-ul' }, ...['stable', 'widening', 'above', 'needs_photo'].map((k) => h('li', null, statusEl(k), ' ', t(`hSt_${k}`))))));
+  b.append(sec(t('hStatus'), h('ul', { class: 'help-ul' }, ...['stable', 'widening', 'above', 'needs_photo'].map((k) => h('li', null, statusEl(k), h('span', { class: 'ui-secondary' }, ` — ${t(`hSt_${k}`)}`))))));
   b.append(sec(t('hAgent'), h('p', null, t('hAgentP')), h('ul', { class: 'help-ul mono-list' }, ...['request_retake', 'request_closer_photo', 'compare_with_previous', 'propose_ticket', 'schedule_next_visit'].map((k) => h('li', null, h('code', null, k), ' ', t(`hTool_${k}`))))));
   b.append(sec(t('howTitle'), h('ol', { class: 'help-ol' }, ...['how1', 'how2', 'how3', 'how4', 'how5'].map((k) => h('li', null, rich(t(k)))))));
   b.append(sec(t('hAcc'), h('p', null, t('proof')), h('p', null, t('hAccDemo'))));
