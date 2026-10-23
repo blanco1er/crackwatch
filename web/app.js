@@ -863,7 +863,7 @@ async function savePdf(c) {
         const t0 = ser[0].at, t1 = ser.length > 1 ? ser[ser.length - 1].at : t0 + 30 * DAY;
         const X = (ms) => cx + 40 + ((ms - t0) / (t1 - t0 || 1)) * (cw - 90); const Y = (mm) => cy + chh - (mm / vmax) * chh;
         doc.setDrawColor(220, 220, 225); doc.setLineWidth(0.5);
-        for (let v = 0; v <= vmax; v += vmax > 1.6 ? 0.5 : 0.25) { doc.line(cx + 40, Y(v), cx + cw - 50, Y(v)); doc.setFontSize(8); doc.setTextColor(...grey); doc.text(clean(W(v)[0]), cx + 34, Y(v) + 3, { align: 'right' }); }
+        for (let v = 0; v <= vmax; v += vmax > 6 ? 2 : vmax > 3 ? 1 : vmax > 1.6 ? 0.5 : 0.25) { doc.line(cx + 40, Y(v), cx + cw - 50, Y(v)); doc.setFontSize(8); doc.setTextColor(...grey); doc.text(clean(W(v)[0]), cx + 34, Y(v) + 3, { align: 'right' }); }
         doc.setDrawColor(255, 56, 60); doc.setLineDashPattern([3, 3], 0); doc.line(cx + 40, Y(settings.widthAlert), cx + cw - 50, Y(settings.widthAlert)); doc.setLineDashPattern([], 0);
         doc.setFontSize(8); doc.setTextColor(200, 40, 45); doc.text(clean(t('chartAlert', { v: Wt(settings.widthAlert) })), cx + 44, Y(settings.widthAlert) - 4);
         doc.setDrawColor(226, 86, 31); doc.setLineWidth(2);
