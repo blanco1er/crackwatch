@@ -46,7 +46,7 @@ export const T = {
     r_oblique: 'The photo is taken at an angle.', f_oblique: 'Face the wall straight on.',
     r_closer: 'The crack is too thin at this distance.', f_closer: ({ z }) => `Come about ${z}× closer, with the card still in the photo.`,
     // 3 · result
-    maxWidth: 'Maximum width', legend: 'Thin → wide', typical: 'Typical width', sinceLast: 'Since the last photo', measuredIn: 'Measured in',
+    maxWidth: 'Maximum width', pickHint: 'Not this one? Tap the crack.', candAria: ({ n, v }) => `Crack ${n}, maximum ${v}`, legend: 'Thin → wide', typical: 'Typical width', sinceLast: 'Since the last photo', measuredIn: 'Measured in',
     vHairline: 'Hairline crack', vHairlineText: 'Usually cosmetic.',
     vFine: 'Fine crack', vFineText: 'Usually cosmetic. Measure it again to see whether it grows.',
     vMedium: 'Medium crack', vMediumText: 'Keep an eye on it. If it grows, ask a professional.',
@@ -148,7 +148,7 @@ export const T = {
     r_glare: 'Il y a un reflet sur le mur.', f_glare: 'Coupez le flash ou décalez-vous.',
     r_oblique: 'La photo est prise de biais.', f_oblique: 'Placez-vous bien en face du mur.',
     r_closer: 'La fissure est trop fine à cette distance.', f_closer: ({ z }) => `Rapprochez-vous d’environ ${z}×, avec la carte toujours dans la photo.`,
-    maxWidth: 'Largeur maximale', legend: 'Fine → large', typical: 'Largeur typique', sinceLast: 'Depuis la dernière photo', measuredIn: 'Mesurée en',
+    maxWidth: 'Largeur maximale', pickHint: 'Pas celle-ci ? Touchez la fissure.', candAria: ({ n, v }) => `Fissure ${n}, maximum ${v}`, legend: 'Fine → large', typical: 'Largeur typique', sinceLast: 'Depuis la dernière photo', measuredIn: 'Mesurée en',
     vHairline: 'Fissure capillaire', vHairlineText: 'En général esthétique.',
     vFine: 'Fissure fine', vFineText: 'En général esthétique. Remesurez-la pour voir si elle s’agrandit.',
     vMedium: 'Fissure moyenne', vMediumText: 'À surveiller. Si elle s’agrandit, demandez l’avis d’un professionnel.',

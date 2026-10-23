@@ -284,7 +284,7 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
   const sh = { id, at, source, key, status: d.measurement.status, decision: { name: last.name, args: last.args, planner: last.planner, reason: last.reason },
     trace: d.trace, quality: d.measurement.quality, card: d.measurement.card, cracks: d.measurement.cracks, comparison: d.comparison,
     ticket: d.ticket ? { id: d.ticket.id, severity: d.ticket.severity, evidence: d.ticket.evidence, status: 'pending_human_approval' } : null,
-    timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, truth: gt, inspectionId: d.inspection_id };
+    timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, truth: gt, inspectionId: d.inspection_id, ovSize: d.overlay_size || null };
   let v;
   if (visitIndex != null) {
     v = c.visits[visitIndex];
@@ -495,9 +495,16 @@ function renderResult() {
   if (!sh) return go('measure');
   const v = verdict(sh, c); const cr = sh.cracks && sh.cracks[0];
   if (badgeOf(c)) root.append(h('span', { class: 'badge-example' }, badgeOf(c)));
-  const frame = h('div', { class: `photo ${sh.cu ? 'photo--wide' : ''}` });
-  const im = h('img', { alt: t('overlayAlt'), class: sh.cu ? 'is-cover' : '' }); setImg(im, sh.cu || sh.img); frame.append(im);
-  const A = [frame, h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend'))];
+  const cands = (sh.cracks || []).filter((x) => x.outline_px && x.outline_px.length > 1);
+  const multi = cands.length > 1 && sh.ovSize;
+  let frame;
+  if (multi) frame = candidatesPhoto(c, sh, cands);
+  else {
+    frame = h('div', { class: `photo ${sh.cu && !sh.cuStale ? 'photo--wide' : ''}` });
+    const im = h('img', { alt: t('overlayAlt'), class: sh.cu && !sh.cuStale ? 'is-cover' : '' }); setImg(im, sh.cu && !sh.cuStale ? sh.cu : sh.img); frame.append(im);
+  }
+  const A = [frame, multi ? h('p', { class: 'pick-hint' }, icon('zoom'), h('span', null, t('pickHint'))) : null,
+    h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend'))];
   const B = [];
   if (cr) B.push(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }));
   B.push(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
@@ -521,6 +528,30 @@ function renderResult() {
   B.push(acts, howMeasured(sh, c));
   root.append(split(A, B));
 }
+// several ridges measured (joint, wall edge…): the one closest to the photo centre is chosen; tap another to switch
+function candidatesPhoto(c, sh, cands) {
+  const [Wp, Hp] = sh.ovSize;
+  const box = h('div', { class: 'photo photo--free', style: `aspect-ratio:${Wp}/${Hp}; width:min(100%, calc(62vh * ${(Wp / Hp).toFixed(4)}))` });
+  const im = h('img', { alt: t('overlayAlt') }); setImg(im, sh.img); box.append(im);
+  const svg = s('svg', { viewBox: `0 0 ${Wp} ${Hp}`, class: 'cands' });
+  cands.forEach((cr, i) => {
+    const pts = cr.outline_px.map((q) => q.join(',')).join(' ');
+    const g = s('g', { class: `cand ${i === 0 ? 'is-on' : ''}`, role: 'button', tabindex: '0', 'aria-pressed': String(i === 0), 'aria-label': t('candAria', { n: i + 1, v: Wt(cr.width_mm.max) }) });
+    g.append(s('polyline', { points: pts, class: 'cand__hit' }), s('polyline', { points: pts, class: 'cand__halo' }), s('polyline', { points: pts, class: 'cand__line' }));
+    const pick = () => chooseCrack(c, sh, cr);
+    g.addEventListener('click', pick); g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+    svg.append(g);
+  });
+  box.append(svg);
+  return box;
+}
+function chooseCrack(c, sh, cr) {
+  const real = findShot(c, sh.id); if (!real) return;
+  const i = real.cracks.findIndex((x) => x.id === cr.id); if (i <= 0) return;
+  real.cracks.unshift(real.cracks.splice(i, 1)[0]);
+  real.cuStale = true;              // the close-up was framed on the first choice
+  save(); renderResult();
+}
 function howMeasured(sh, c) {
   const d = h('details', { class: 'tile more' }, h('summary', null, h('span', null, t('howMeasured')), icon('chev-d')));
   const ul = h('ul', { class: 'more__list' });
@@ -538,7 +569,7 @@ function howMeasured(sh, c) {
 // ------------------------------------------------------------------ 4 · MY CRACKS + crack detail
 function thumb(c) {
   const img = h('img', { alt: '', class: 'thumb' });
-  const sh = [...allShots(c)].reverse(); const cu = sh.find((x) => x.cu); const ba = sh.find((x) => x.ba); const ov = sh.find((x) => x.img);
+  const sh = [...allShots(c)].reverse(); const cu = sh.find((x) => x.cu && !x.cuStale); const ba = sh.find((x) => x.ba); const ov = sh.find((x) => x.img);
   if (cu) setImg(img, cu.cu); else if (ba) idb.get(ba.ba).then((v) => { if (v) img.src = JSON.parse(v).after; }); else if (ov) setImg(img, ov.img);
   return img;
 }

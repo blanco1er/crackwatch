@@ -150,6 +150,29 @@ def render_closeup(bgr, res, max_side=960) -> dict | None:
             "px_per_mm": round(float(r), 3), "size_px": [W, H]}
 
 
+def order_by_centre(res, shape) -> None:
+    """On a real wall several ridges can be measured (a mortar joint, a wall edge next to the crack). The user aims the
+    centre of the photo at the crack, so the main crack is the one passing closest to the image centre, not the longest.
+    Each candidate also gets its outline in overlay pixels, so the app can let the user tap another one."""
+    dbg = getattr(res, "debug", None) or {}
+    card, comps = dbg.get("card"), dbg.get("comps") or []
+    if card is None or not res.cracks:
+        return
+    h, w = shape[:2]
+    centre, diag = np.array([w / 2.0, h / 2.0]), math.hypot(w, h)
+    s = min(1.0, OVERLAY_SIDE / max(h, w))
+    for cr in res.cracks:
+        i = cr.get("id")
+        if i is None or i >= len(comps):
+            cr["center_dist"] = 1.0
+            continue
+        pts = apply_h(card.H_img_from_board, comps[i]["pts_mm"])
+        cr["center_dist"] = round(float(np.min(np.linalg.norm(pts - centre, axis=1)) / diag), 3)
+        step = max(1, len(pts) // 80)
+        cr["outline_px"] = np.round(pts[::step] * s).astype(int).tolist()
+    res.cracks.sort(key=lambda c: c.get("center_dist", 1.0))
+
+
 def _round(o, nd=3):
     if isinstance(o, float):
         return round(o, nd) if math.isfinite(o) else None
@@ -170,12 +193,19 @@ def public_measurement(res) -> dict:
                    "cracks": j["cracks"][:3], "n_cracks": len(j["cracks"])})
 
 
+def overlay_size(shape):
+    h, w = shape[:2]
+    s = min(1.0, OVERLAY_SIDE / max(h, w))
+    return [int(round(w * s)), int(round(h * s))]
+
+
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
             inspection_id: str | None = None, log=lambda *_: None) -> dict:
     """Run one inspection. `retakes` = photos already re-requested in this visit (client-held)."""
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
     res = measure_image(current, keep_debug=True)
+    order_by_centre(res, current.shape)
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
     state = AgentState(inspection_id, previous_inspection_id="previous-visit" if previous is not None else None,
@@ -213,6 +243,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     out.update({"measurement": public_measurement(res), "trace": _round(trace),
                 "overlay_jpeg_b64": base64.b64encode(render_overlay(current, res, focus)).decode(),
                 "closeup": render_closeup(current, res) if last["name"] not in ("request_retake",) else None,
+                "overlay_size": overlay_size(current.shape),
                 "timings_ms": dict(timings, total_ms=round(1000 * (time.time() - t0))),
                 "llm": {"calls": sum(1 for t in trace if t["action"].get("meta", {}).get("input_tokens")),
                         "cost_usd": round(sum(t["action"].get("meta", {}).get("cost_usd", 0) or 0 for t in trace), 6)}})
