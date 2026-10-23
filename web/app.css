@@ -268,3 +268,29 @@ textarea.field { min-height: 96px; resize: vertical; }
 .cards li, .crack-card { min-width: 0; }
 .crack-card__bottom { flex-wrap: wrap; row-gap: 10px; }
 .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- iPad and desktop: wider page, two blocks, tab bar in the header ---------- */
+.split__a, .split__b { display: contents; }
+.split { display: flex; flex-direction: column; }
+.o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; } .o5 { order: 5; } .o6 { order: 6; } .o7 { order: 7; } .o8 { order: 8; }
+@media (min-width: 900px) {
+  .topbar, .page { max-width: 1080px; }
+  .page { padding-left: 32px; padding-right: 32px; padding-bottom: 64px; }
+  .topbar { padding-left: 32px; padding-right: 32px; }
+  .tabbar { top: 12px; bottom: auto; box-shadow: none; }
+  .split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+  .split__a, .split__b { display: flex; flex-direction: column; min-width: 0; }
+  .split__a { position: sticky; top: 24px; }
+  .split .o1, .split .o2, .split .o3, .split .o4, .split .o5, .split .o6, .split .o7, .split .o8 { order: 0; }
+  .split__b > .block:first-child, .split__b > .kicker:first-child { margin-top: 0; }
+  #view-measure .display { max-width: 18ch; font-size: 56px; }
+  #view-measure .lede { max-width: 40rem; }
+  #view-measure .cta { max-width: 560px; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  #view-cracks .cta { max-width: 420px; }
+  .hero__num { font-size: 112px; }
+  .an-head, .ex-strip { max-width: none; }
+}
+@media (min-width: 700px) and (max-width: 899px) {
+  .topbar, .page { max-width: 720px; }
+}

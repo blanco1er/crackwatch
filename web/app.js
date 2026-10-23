@@ -192,6 +192,8 @@ function trendOf(c) {
   if (d != null && Math.abs(d) >= settings.wideningAlert) return { tone: d > 0 ? 'act' : 'ok', text: t('trSince', { d: Wt(d, { sign: true }), since }) };
   return { tone: 'ok', text: t('trStable') };
 }
+// two blocks: media left / reading right from 900 px; on phones the items keep their own order (CSS order)
+const split = (a, b) => h('div', { class: 'split' }, h('div', { class: 'split__a' }, ...a.filter(Boolean)), h('div', { class: 'split__b' }, ...b.filter(Boolean)));
 const chip = (tr) => h('span', { class: `chip chip--${tr.tone}` }, h('i', { 'aria-hidden': 'true' }), tr.text);
 function hero(mm, { unc, cls = '' } = {}) {
   const [n, unit] = W(mm);
@@ -474,6 +476,8 @@ function renderAnalyze() {
     }
   }
   root.append(acts);
+  const fr = $('.photo', root);
+  root.append(split([fr], [...root.children].filter((n) => n !== fr && !n.classList.contains('an-head') && !n.classList.contains('ex-strip'))));
 }
 
 // ------------------------------------------------------------------ 3 · RESULT
@@ -485,14 +489,13 @@ function renderResult() {
   if (badgeOf(c)) root.append(h('span', { class: 'badge-example' }, badgeOf(c)));
   const frame = h('div', { class: `photo ${sh.cu ? 'photo--wide' : ''}` });
   const im = h('img', { alt: t('overlayAlt'), class: sh.cu ? 'is-cover' : '' }); setImg(im, sh.cu || sh.img); frame.append(im);
-  root.append(frame, h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend')));
-  if (cr) {
-    root.append(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }));
-  }
-  root.append(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
+  const A = [frame, h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend'))];
+  const B = [];
+  if (cr) B.push(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }));
+  B.push(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
   if (cr) {
     const cmp = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
-    root.append(h('div', { class: 'facts' },
+    B.push(h('div', { class: 'facts' },
       h('div', { class: 'tile fact' }, h('span', null, t('typical')), h('strong', null, Wt(cr.width_mm.median))),
       cmp ? h('div', { class: 'tile fact' }, h('span', null, t('sinceLast')), h('strong', { class: cmp.width_delta_mm.median >= settings.wideningAlert ? 'is-act' : '' }, Wt(cmp.width_delta_mm.median, { sign: true })))
         : h('div', { class: 'tile fact' }, h('span', null, t('measuredIn')), h('strong', null, `${num((sh.timings?.total_ms || 0) / 1000, 1)} s`))));
@@ -507,8 +510,8 @@ function renderResult() {
     if (sh.ticket && sh.ticket.status === 'pending_human_approval') acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openAlert(c, sh) }, icon('bell'), h('span', null, t('alertCta'))));
     acts.append(h('button', { class: `btn ${sh.ticket && sh.ticket.status === 'pending_human_approval' ? 'btn--soft' : 'btn--primary'}`, type: 'button', onclick: () => go(`crack/${c.id}`) }, h('span', null, c.demo ? t('openExample') : t('openCrack')), icon('chev-r')));
   }
-  root.append(acts);
-  root.append(howMeasured(sh, c));
+  B.push(acts, howMeasured(sh, c));
+  root.append(split(A, B));
 }
 function howMeasured(sh, c) {
   const d = h('details', { class: 'tile more' }, h('summary', null, h('span', null, t('howMeasured')), icon('chev-d')));
@@ -580,33 +583,37 @@ function renderCrack() {
   const c = crackById(S.crackId); if (!c) return go('cracks');
   const ser = series(c); const last = ser[ser.length - 1]; const ls = lastShot(c);
   root.append(h('div', { class: 'crack-head' }, h('div', null, h('h1', { class: 'title' }, c.name), h('p', { class: 'muted' }, c.place || '')), badgeOf(c) ? h('span', { class: 'badge-example' }, badgeOf(c)) : null));
-  if (last) root.append(hero(last.max, { unc: 2 * last.unc }), h('div', { class: 'chips' }, chip(trendOf(c))));
+  const A = []; const B = [];
+  if (last) B.push(h('div', { class: 'o1' }, hero(last.max, { unc: 2 * last.unc }), h('div', { class: 'chips' }, chip(trendOf(c)))));
   const v = ls && verdict(ls, c);
-  if (v) root.append(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
+  if (v) B.push(h('div', { class: `verdict o2 ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
   const baShot = [...allShots(c)].reverse().find((x) => x.ba);
   if (baShot) {
-    const box = h('section', { class: 'block' }, h('h2', { class: 'section-title' }, t('beforeAfter')), h('div', { class: 'photo photo--wide' }));
+    const box = h('section', { class: 'block o3' }, h('h2', { class: 'section-title' }, t('beforeAfter')), h('div', { class: 'photo photo--wide' }));
     idb.get(baShot.ba).then((val) => { if (!val) return; const p = JSON.parse(val); $('.photo', box).append(beforeAfter(p.before, p.after, fmtDate(c.visits[0].at, { day: 'numeric', month: 'short' }), fmtDate(baShot.visitAt, { day: 'numeric', month: 'short' }))); });
     box.append(h('p', { class: 'fine' }, t('baNote')));
-    root.append(box);
-  } else if (ls && ls.img) {
-    const f = h('div', { class: 'photo' }); const im = h('img', { alt: t('overlayAlt') }); setImg(im, ls.img); f.append(im); root.append(h('section', { class: 'block' }, f));
+    A.push(box);
+  } else if (ls && (ls.cu || ls.img)) {
+    const f = h('div', { class: `photo ${ls.cu ? 'photo--wide' : ''}` }); const im = h('img', { alt: t('overlayAlt'), class: ls.cu ? 'is-cover' : '' }); setImg(im, ls.cu || ls.img); f.append(im);
+    A.push(h('section', { class: 'block o3' }, f));
   }
-  root.append(h('section', { class: 'block tile chart-tile' }, h('div', { class: 'chart-tile__head' }, h('h2', { class: 'section-title' }, t('overTime')), h('span', { class: 'muted' }, t('nMeasures', { n: ser.length }))), miniChart(ser)));
+  if (c.real && !crackById(SIM_ID)) A.push(h('div', { class: 'row-actions o4' }, h('button', { class: 'link-btn', type: 'button', onclick: () => startSim() }, icon('play'), h('span', null, t('simCta')))));
+  A.push(h('section', { class: 'block tile chart-tile o5' }, h('div', { class: 'chart-tile__head' }, h('h2', { class: 'section-title' }, t('overTime')), h('span', { class: 'muted' }, t('nMeasures', { n: ser.length }))), miniChart(ser)));
   const visits = h('ul', { class: 'visits tile' });
   [...c.visits].reverse().forEach((vv) => { if (!vv.shots.length) return; const m = [...vv.shots].reverse().find(isMeasured); const vs = verdict(vv.shots[vv.shots.length - 1], c);
     visits.append(h('li', null, h('span', null, fmtDate(vv.at)), h('strong', null, m ? Wt(m.cracks[0].width_mm.max) : '—'), h('span', { class: `dot ${TONE_CLASS[vs.tone]}`, title: vs.title }))); });
-  root.append(h('section', { class: 'block' }, h('h2', { class: 'section-title' }, t('visits')), visits));
+  B.push(h('section', { class: 'block o8' }, h('h2', { class: 'section-title' }, t('visits')), visits));
   const pend = allShots(c).find((x) => x.ticket && x.ticket.status === 'pending_human_approval');
-  root.append(h('div', { class: 'cta' },
+  B.push(h('div', { class: 'cta o6' },
     h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (c.sim ? startSim() : c.example ? startExample() : pickFile(c.id)) }, icon('camera'), h('span', null, c.demo ? t('replayExample') : t('measureAgain'))),
     h('button', { class: 'btn btn--soft', type: 'button', onclick: () => savePdf(c) }, icon('doc'), h('span', null, t('reportCta'))),
     h('button', { class: `btn btn--soft ${pend ? 'is-act' : ''}`, type: 'button', onclick: () => openAlert(c, pend || ls) }, icon('bell'), h('span', null, t('alertCta')))));
-  root.append(h('div', { class: 'row-actions' },
+  B.push(h('div', { class: 'row-actions o7' },
     h('button', { class: 'link-btn', type: 'button', onclick: () => downloadIcs(c) }, icon('cal'), h('span', null, t('reminderCta'))),
     h('button', { class: 'link-btn', type: 'button', onclick: () => shareLink(c) }, icon('link'), h('span', null, t('shareCta'))),
     h('button', { class: 'link-btn', type: 'button', onclick: () => openTrack(c) }, icon('pencil'), h('span', null, t('renameCta'))),
     h('button', { class: 'link-btn is-danger', type: 'button', onclick: () => confirmDelete(c) }, icon('trash'), h('span', null, t('deleteCta')))));
+  root.append(split(A, B));
 }
 
 // ------------------------------------------------------------------ sheets: track, compare, alert a professional, settings
