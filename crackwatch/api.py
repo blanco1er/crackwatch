@@ -48,6 +48,11 @@ LIMITS = {"inspections_per_day": _env_int("CW_MAX_INSPECTIONS_PER_DAY", 1500),
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/app.css": ("app.css", "text/css; charset=utf-8"), "/ds/tokens.css": ("ds/tokens.css", "text/css; charset=utf-8"),
           "/ds/components.css": ("ds/components.css", "text/css; charset=utf-8"),
+          "/ds/motion.js": ("ds/motion.js", "text/javascript; charset=utf-8"),
+          "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
+          "/vendor/jspdf.umd.min.js": ("vendor/jspdf.umd.min.js", "text/javascript; charset=utf-8"),
+          "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+          "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
           "/favicon.svg": ("favicon.svg", "image/svg+xml")}
 
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; "

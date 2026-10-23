@@ -83,6 +83,38 @@ def render_overlay(bgr: np.ndarray, res, focus_region_mm=None) -> bytes:
     return buf.tobytes()
 
 
+def render_before_after(prev_bgr, prev_res, cur_bgr, cur_res, T_board1_from_board2, max_side=960) -> dict | None:
+    """Both visits warped into the card frame of the first visit, over the same window around the crack:
+    the two JPEGs are pixel-aligned, so the app can lay one over the other (slider).
+    Card left in place -> identical frames; card re-glued -> the texture registration T is applied."""
+    try:
+        c1, c2 = prev_res.debug["card"], cur_res.debug["card"]
+        T = np.asarray(T_board1_from_board2, np.float64)
+        pts1 = np.vstack([c["pts_mm"] for c in prev_res.debug["comps"]])
+        pts2 = apply_h(T, np.vstack([c["pts_mm"] for c in cur_res.debug["comps"]]))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    allp = np.vstack([pts1, pts2])
+    (x0, y0), (x1, y1) = allp.min(0) - 10.0, allp.max(0) + 10.0
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2                    # 3:2 window, 45 to 150 mm wide
+    wmm = float(min(max(x1 - x0, 1.5 * (y1 - y0), 45.0), 150.0))
+    hmm = wmm / 1.5
+    x0, y0 = cx - wmm / 2, cy - hmm / 2
+    r = max_side / wmm
+    W, H = int(round(wmm * r)), int(round(hmm * r))
+    A = np.array([[1 / r, 0, x0], [0, 1 / r, y0], [0, 0, 1]], np.float64)     # output px -> board-1 mm
+    out = {}
+    for name, img, M in (("before", prev_bgr, c1.H_img_from_board @ A),
+                         ("after", cur_bgr, c2.H_img_from_board @ np.linalg.inv(T) @ A)):
+        warped = cv2.warpPerspective(img, M, (W, H), flags=cv2.INTER_AREA | cv2.WARP_INVERSE_MAP,
+                                     borderMode=cv2.BORDER_CONSTANT, borderValue=(40, 40, 40))
+        ok, buf = cv2.imencode(".jpg", warped, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        out[name + "_jpeg_b64"] = base64.b64encode(buf.tobytes()).decode()
+    out.update({"window_board_mm": [round(float(v), 1) for v in (x0, y0, x0 + wmm, y0 + hmm)],
+                "px_per_mm": round(float(r), 3), "size_px": [W, H]})
+    return out
+
+
 def _round(o, nd=3):
     if isinstance(o, float):
         return round(o, nd) if math.isfinite(o) else None
@@ -122,6 +154,8 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         timings["compare_ms"] = round(1000 * (time.time() - t1))
         out["comparison"] = _round({k: v for k, v in st.comparison.items() if k != "T_board1_from_board2"})
         out["previous_measurement"] = public_measurement(prev)
+        if st.comparison.get("status") == "ok":
+            out["before_after"] = render_before_after(previous, prev, current, res, st.comparison["T_board1_from_board2"])
         return obs
 
     def wait_for_inspector(args, st):
