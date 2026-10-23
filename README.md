@@ -9,8 +9,9 @@ region**, a comparison with the previous visit, or a maintenance ticket that **a
 > CrackWatch is a monitoring and triage aid. It is **not** a structural diagnosis and does not replace a
 > structural engineer. Thresholds in `crackwatch/agent.py` are configurable defaults, not engineering norms.
 
-Entry for the OpenCV AI Competition 2026 (AWS). Hosted demo: **DEMO_URL** (guided 4-step inspection on
-synthetic photos with known ground truth, or your own photo with the printed card).
+Entry for the OpenCV AI Competition 2026 (AWS). Hosted demo: **https://p0k1pglt1e.execute-api.us-east-1.amazonaws.com/**
+(the 4-photo demo follows one synthetic crack over three months, with its known ground truth; or track your own crack
+with the printed card). Source: https://github.com/blanco1er/crackwatch (MIT).
 
 ![Architecture](docs/architecture.png)
 
@@ -131,8 +132,8 @@ Print the cards from `print/*.pdf` at **100 % / actual size** and check the prin
 | `crackwatch/service.py`, `api.py`, `store.py`, `visits.py` | hosted demo: inspection service, routes, storage, anonymous visits |
 | `crackwatch/synth.py`, `evaluate.py`, `scripts/run_eval.py`, `eval_e4.py` | synthetic generator and evaluation |
 | `scripts/process_real.py` | real-photo evaluation (E2, E4 real, E3) |
-| `scripts/make_demo_samples.py` | the 4 synthetic demo photos (one illustrative wall, ground truth shown in the UI) |
-| `web/` | demo page (no framework, no third-party request) |
+| `scripts/make_demo_samples.py` | the 4 demo photos: a synthetic crack (exact ground truth, shown in the UI) on a real CC0 wall texture (`crackwatch/assets/textures/ATTRIBUTION.md`) |
+| `web/` | the app (no framework, no third-party request): tracked cracks stored on the device, crack history with aligned before/after, live analysis, inspector card and trace, human ticket review, PDF report, calendar reminder, share link, EN/FR, light/dark |
 | `deploy/` | Lambda handler, image build without Docker, Dockerfile, CloudFormation template, deploy script |
 | `tests/` | agent scenarios, API, cost guards, visits, planner fallback |
 

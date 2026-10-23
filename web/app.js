@@ -145,7 +145,7 @@ async function api(path, body) {
 }
 const screenClass = () => (innerWidth < 700 ? 'compact' : innerWidth < 1000 ? 'regular' : 'large');
 function visit(type, extra = {}) {
-  try { fetch('/api/visit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, lang, screen: screenClass(), ...extra }), keepalive: true }).catch(() => {}); } catch { /* ignore */ }
+  try { fetch('/api/visit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, lang, screen: screenClass(), ...extra }), keepalive: type === 'card' }).catch(() => {}); } catch { /* ignore */ }
 }
 
 // ------------------------------------------------------------------ demo story (4 synthetic photos of one wall)
