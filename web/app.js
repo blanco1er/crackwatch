@@ -111,6 +111,11 @@ const isMeasured = (sh) => sh && sh.status === 'ok' && sh.cracks && sh.cracks[0]
 function series(c) {
   return c.visits.map((v) => { const m = [...v.shots].reverse().find(isMeasured); return m && { at: v.at, max: m.cracks[0].width_mm.max, med: m.cracks[0].width_mm.median, unc: m.cracks[0].uncertainty_mm, len: m.cracks[0].length_mm, shot: m }; }).filter(Boolean);
 }
+function crackDelta(c) {
+  const ser = series(c); if (ser.length < 2) return null;
+  const ls = lastShot(c); const cmp = ls && ls.comparison && ls.comparison.status === 'ok' ? ls.comparison.width_delta_mm.median : null;
+  return cmp ?? ser[ser.length - 1].max - ser[0].max;
+}
 function crackStatus(c) {
   const ls = lastShot(c);
   if (!ls) return 'new';
@@ -243,7 +248,7 @@ function sparkline(ser) {
 // width over time: max (with ±2σ bars) and median, alert threshold dashed
 function widthChart(ser, { compact = false } = {}) {
   const wrap = h('figure', { class: 'ui-chart width-chart' });
-  const Wd = 640; const Hd = compact ? 180 : 240; const pad = { l: 44, r: 92, t: 16, b: 30 };
+  const narrow = innerWidth < 700; const Wd = narrow ? 350 : 640; const Hd = narrow ? 210 : (compact ? 180 : 240); const pad = { l: 40, r: narrow ? 18 : 40, t: 22, b: 28 };
   const svg = s('svg', { viewBox: `0 0 ${Wd} ${Hd}`, role: 'img', 'aria-label': t('chartAria', { n: ser.length }) });
   const inch = settings.units === 'in'; const k = inch ? 1 / 25.4 : 1;
   const vmax = Math.max(settings.widthAlert * 1.1, ...ser.map((p) => p.max + 2 * (p.unc || 0))) * 1.08;
@@ -258,7 +263,7 @@ function widthChart(ser, { compact = false } = {}) {
   // alert threshold
   const yt = Y(settings.widthAlert);
   svg.append(s('line', { x1: pad.l, x2: Wd - pad.r, y1: yt, y2: yt, class: 'ui-chart__threshold' }));
-  const tl = s('text', { x: Wd - pad.r + 6, y: yt + 4, class: 'ui-chart__label chart-th' }); tl.textContent = t('chartAlert', { v: Wt(settings.widthAlert) }); svg.append(tl);
+  const tl = s('text', { x: pad.l + 4, y: yt - 6, class: 'ui-chart__label chart-th' }); tl.textContent = t('chartAlert', { v: Wt(settings.widthAlert) }); svg.append(tl);
   if (ser.length) {
     const path = (key) => ser.map((p, i) => `${i ? 'L' : 'M'}${X(p.at).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ');
     if (ser.length > 1) {
@@ -273,7 +278,7 @@ function widthChart(ser, { compact = false } = {}) {
       svg.append(s('circle', { cx: x, cy: Y(p.max), r: 5, class: 'ui-chart__dot', style: '--_c: var(--width-color)' }));
       const dl = s('text', { x, y: Hd - 8, 'text-anchor': i === 0 ? 'start' : i === ser.length - 1 && ser.length > 1 ? 'end' : 'middle', class: 'ui-chart__label' }); dl.textContent = fmtShort(p.at); svg.append(dl);
       if (i === ser.length - 1) {
-        const v1 = s('text', { x: X(p.at) + 10, y: Y(p.max) + 4, class: 'chart-end' }); v1.textContent = Wt(p.max); svg.append(v1);
+        const v1 = s('text', { x: X(p.at) - (ser.length > 1 ? 8 : -10), y: Y(p.max) - 12, 'text-anchor': ser.length > 1 ? 'end' : 'start', class: 'chart-end' }); v1.textContent = Wt(p.max); svg.append(v1);
       }
     });
   }
@@ -306,7 +311,7 @@ function renderWalls() {
   const pend = pendingTickets();
   let sentence;
   if (!n) sentence = t('leadEmpty');
-  else if (widening.length) { const c = widening[0]; const ser = series(c); const d = ser.length > 1 ? ser[ser.length - 1].max - ser[0].max : null; sentence = t('leadWidening', { n: widening.length, name: c.name, d: d != null ? Wt(d, { sign: true }) : '', tk: pend.length }); }
+  else if (widening.length) { const c = widening[0]; const ser = series(c); const d = crackDelta(c); sentence = t('leadWidening', { n: widening.length, name: c.name, d: d != null ? Wt(d, { sign: true }) : '', tk: pend.length }); }
   else if (needs.length) sentence = t('leadNeeds', { n: needs.length, name: needs[0].name });
   else sentence = t('leadStable', { n });
   lead.append(h('p', { class: 'summary' }, rich(sentence)));
@@ -390,7 +395,8 @@ function renderCrack() {
   const lead = h('div', { class: 'lead' });
   // sentence
   let sentence;
-  const delta = ser.length > 1 ? last.max - first.max : null;
+  const cmpOk = ls && ls.comparison && ls.comparison.status === 'ok' ? ls.comparison : null;
+  const delta = ser.length > 1 ? (cmpOk ? cmpOk.width_delta_mm.median : last.max - first.max) : null;
   const days = ser.length > 1 ? Math.round((last.at - first.at) / DAY) : 0;
   if (!ls) sentence = t('cNone');
   else if (st === 'needs_photo') sentence = t('cNeeds', { why: decisionTitle(ls) });
@@ -402,7 +408,7 @@ function renderCrack() {
   if (pend.length) lead.append(banner('critical', t('ticketPending'), t('ticketPendingText'), h('button', { class: 'ui-button ui-button--sm', type: 'button', onclick: () => openTicket(c.id, pend[0].id) }, t('review'))));
   // hero numbers
   if (last) {
-    const ds = ls.comparison?.status === 'ok' ? ls.comparison : null;
+    const ds = cmpOk;
     lead.append(h('div', { class: 'ui-stats crack-stats', role: 'list' },
       stat(t('sMax'), W(last.max)[0], W(last.max)[1], `± ${Wt(2 * last.unc)} (2σ)`, 'is-width'),
       stat(t('sChange'), delta != null ? W(delta, { sign: true })[0] : '—', delta != null ? W(delta)[1] : null,
@@ -507,6 +513,7 @@ function beforeAfter(before, after, l1, l2) {
 function decisionTitle(sh) {
   if (!sh) return '';
   if (sh.error) return t('dError');
+  if (sh.ticket && sh.ticket.status !== 'pending_human_approval') return t(sh.ticket.status === 'approved' ? 'dTicketApproved' : 'dTicketRejected');
   return t({ request_retake: 'dRetake', request_closer_photo: 'dCloser', propose_ticket: 'dTicket', schedule_next_visit: 'dFine', stop: 'dStop', compare_with_previous: 'dCompare' }[sh.decision?.name] || 'dFine');
 }
 function decisionWhy(sh) {
@@ -537,12 +544,12 @@ function inspectorCard(c, sh, { inCrack = false, onNext } = {}) {
   const instr = sh.decision?.args?.instruction;
   if (instr) card.append(h('p', { class: 'inspector__instr' }, icon('info'), h('span', null, `“${instr}”`)));
   const acts = h('div', { class: 'inspector__actions' });
+  if (sh.ticket) acts.append(h('button', { class: `ui-button ${sh.ticket.status === 'pending_human_approval' ? 'ui-button--prominent' : 'ui-button--tinted'}`, type: 'button', onclick: () => openTicket(c.id, sh.id) }, icon('ticket'), h('span', null, sh.ticket.status === 'pending_human_approval' ? t('reviewTicket') : t('viewTicket'))));
   if (onNext) onNext(acts, sh);
   else if (inCrack && !c.demo) {
     if (['request_retake', 'request_closer_photo'].includes(name)) acts.append(h('button', { class: 'ui-button ui-button--prominent', type: 'button', onclick: () => openNewPhoto(c.id) }, icon('camera'), h('span', null, t('takePhoto'))));
     if (name === 'schedule_next_visit') acts.append(h('button', { class: 'ui-button ui-button--tinted', type: 'button', onclick: () => downloadIcs(c) }, icon('cal'), h('span', null, t('addReminder'))));
   }
-  if (sh.ticket) acts.append(h('button', { class: 'ui-button ui-button--prominent', type: 'button', onclick: () => openTicket(c.id, sh.id) }, icon('ticket'), h('span', null, sh.ticket.status === 'pending_human_approval' ? t('reviewTicket') : t(`tk_${sh.ticket.status}`))));
   if (acts.childNodes.length) card.append(acts);
   card.append(traceBlock(sh));
   return card;

@@ -335,3 +335,17 @@ button.ui-nav-item { font: inherit; font-size: var(--text-callout); }
   .pending-dot { animation: none; }
 }
 @media print { .ui-sidebar, .ui-tabbar, .ui-toolbar__group, .lead-actions { display: none !important; } .ui-main { padding: 0 !important; } }
+
+/* ---------- fixes from the 390 px review ---------- */
+.crack-stats + .lead-actions, .lead .ui-stats + .lead-actions { margin-top: 26px; }
+.manage { margin-top: 36px; }
+.settings .ui-list-section + .ui-list-section { margin-top: 28px; }
+.crack-row .ui-row__title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.crack-row .ui-row__subtitle { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+@media (max-width: 480px) {
+  .shot-row, .how .ui-row { flex-wrap: wrap; }
+  .shot-row .ui-row__body, .how .ui-row__body { flex: 1 1 calc(100% - 50px); }
+  .shot-row .ui-button, .how .ui-button { margin-left: 42px; }
+}
+.width-chart .chart-end { paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: 4px; }
+.width-chart .chart-th { paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: 4px; }
