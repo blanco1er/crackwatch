@@ -2,128 +2,196 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>CrackWatch</title>
-<meta name="description" content="A printed card turns a phone photo into a crack gauge: OpenCV 5 measures the width in millimetres, an agent on Amazon Bedrock decides what to do next, and a human approves every ticket.">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CrackWatch">
+<title>CrackWatch</title>
+<meta name="description" content="Track a wall crack in millimetres with a printed card and a phone. OpenCV 5 measures the width with its uncertainty, an inspector agent on Amazon Bedrock decides what to do next, and a human approves every ticket.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/ds/tokens.css">
 <link rel="stylesheet" href="/ds/components.css">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="ui-root">
+<a class="skip" href="#content" data-i18n="skip">Skip to content</a>
+
+<!-- SF-style symbols, 1.7 px strokes on a 24 grid -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-card" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 7h3v3H8zM13 10h3v3h-3zM8 13h3v3H8z" fill="currentColor"/></symbol>
-  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.4-2h6.2l1.4 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
-  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
-  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4.5M12 17v.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M9.5 4.5v15"/></symbol>
+  <symbol id="i-wall" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v5M15 9.5v5M9 14.5v5"/></symbol>
+  <symbol id="i-crack" viewBox="0 0 24 24"><path d="M7 3.5l4.2 6.2-2.5 3 4.6 7.8M13.3 20.5l1.6-5 4.6-2"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5v2.2a2.3 2.3 0 0 0 0 4.6v2.2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 16.5v-2.2a2.3 2.3 0 0 0 0-4.6z"/><path d="M14.5 6v12" stroke-dasharray="1.6 2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/><circle cx="12" cy="12" r="6.6"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.4-2h6.2l1.4 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3.1-3.1a4 4 0 0 0-5.7-5.7l-1.3 1.3"/><path d="M14 10a4 4 0 0 0-5.7 0l-3.1 3.1a4 4 0 0 0 5.7 5.7l1.3-1.3"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M12 13v4M10 15h4"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6.5 3.5h7l4 4v12a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M13.5 3.5v4h4M8.5 12.5h7M8.5 16h5"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 16.8v.2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.6a2 2 0 0 1 3.4 0l7.1 12.6a2 2 0 0 1-1.7 3H4.9a2 2 0 0 1-1.7-3z"/><path d="M12 9.5v4.2M12 16.8v.2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.8v.3"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4h-4"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5M10.5 8v5M8 10.5h5"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 3v18"/><path d="m8 10-2 2 2 2M16 10l2 2-2 2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 12.5a1 1 0 0 0 1 .9h7.2a1 1 0 0 0 1-.9L17.5 7"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M15.5 4.5l4 4L9 19H5v-4z"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h3v3H8zM13 10h3v3h-3zM8 13h3v3H8z"/></symbol>
+  <symbol id="i-agent" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="m7.5 10 2.5 2-2.5 2M12.5 15h4"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4"/></symbol>
 </svg>
 
-<header class="ui-toolbar cw-bar" id="top">
-  <a class="cw-brand" href="/" aria-label="CrackWatch home">
-    <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="var(--label)"/><path d="M8 6.5l4.2 6.3-2.3 2.7 4.4 6M14.3 21.5l1.5-4.7 4.2-1.8" fill="none" stroke="var(--bg-grouped)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>CrackWatch</span>
-  </a>
-  <div class="cw-bar__end">
-    <a class="ui-button ui-button--plain ui-button--sm cw-hide-compact" href="/card.pdf" target="_blank" rel="noopener" data-visit="card" data-i18n="printCard">Print the card</a>
-    <fieldset class="ui-segmented cw-lang" aria-label="Language">
-      <label><input type="radio" name="lang" value="en" checked>EN</label>
-      <label><input type="radio" name="lang" value="fr">FR</label>
-    </fieldset>
-  </div>
-</header>
+<div class="ui-app" id="app">
 
-<main class="cw-main">
-  <section class="cw-intro">
-    <h1 class="ui-large-title" data-i18n="headline">A printed card turns a phone photo into a crack gauge.</h1>
-    <p class="cw-lede" data-i18n="lede">OpenCV&nbsp;5 reads the card to get millimetres, measures the crack width with its uncertainty, and compares it with the last visit. An agent on Amazon&nbsp;Bedrock decides what happens next: a retake, a closer photo of one spot, or a ticket that only a human can approve.</p>
-    <p class="cw-proof ui-footnote" data-i18n="proof">Measured so far on 300 held-out synthetic photos: median-width error 0.17&nbsp;mm, card found in 99.7&nbsp;%. Real-photo validation is in progress and will be published here.</p>
-  </section>
-
-  <section class="cw-work" aria-label="Inspection">
-    <div class="cw-left">
-      <div class="cw-steps" role="group" aria-labelledby="steps-title">
-        <h2 class="ui-headline" id="steps-title" data-i18n="guided">Guided inspection of a synthetic wall</h2>
-        <ol class="cw-steplist">
-          <li><button class="cw-step" data-step="blurry"><span class="cw-step__n">1</span><span><b data-i18n="s1t">First photo</b><small data-i18n="s1d">Taken in a hurry</small></span></button></li>
-          <li><button class="cw-step" data-step="far"><span class="cw-step__n">2</span><span><b data-i18n="s2t">Retake</b><small data-i18n="s2d">Sharp, but from far away</small></span></button></li>
-          <li><button class="cw-step" data-step="close"><span class="cw-step__n">3</span><span><b data-i18n="s3t">Closer photo</b><small data-i18n="s3d">Where the agent asked</small></span></button></li>
-          <li><button class="cw-step" data-step="visit2"><span class="cw-step__n">4</span><span><b data-i18n="s4t">Three months later</b><small data-i18n="s4d">Second visit, same card</small></span></button></li>
-        </ol>
+  <!-- ===================== Sidebar (glass, large screens) ===================== -->
+  <aside class="ui-sidebar ui-glass" id="sidebar" aria-label="Navigation">
+    <div class="ui-sidebar__header">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M10.5 6.5l5 7.4-3 3.6 5.4 8M17.9 25.5l1.8-5.6 5-2.2" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div class="brand-text">
+        <div class="ui-headline">CrackWatch</div>
+        <div class="ui-footnote ui-secondary" data-i18n="tagline">Crack width in millimetres</div>
       </div>
-
-      <figure class="cw-viewer" id="viewer" aria-live="polite">
-        <div class="cw-viewer__frame">
-          <img id="photo" alt="" hidden>
-          <div class="cw-viewer__empty" id="viewer-empty">
-            <p class="ui-headline" data-i18n="emptyTitle">Start with step 1, or measure your own photo.</p>
-            <p class="ui-subhead ui-secondary" data-i18n="emptyBody">Each step sends a photo to the measuring service on AWS Lambda (arm64). The agent's answer decides the next step.</p>
-          </div>
-          <div class="cw-viewer__busy" id="busy" hidden>
-            <span class="ui-spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-            <span id="busy-text" data-i18n="busy">Measuring with OpenCV 5…</span>
-          </div>
-        </div>
-        <figcaption class="ui-footnote ui-secondary" id="caption"></figcaption>
-      </figure>
-
-      <details class="cw-own" id="own">
-        <summary class="ui-headline" data-i18n="ownTitle">Measure your own crack</summary>
-        <ol class="cw-howto ui-callout">
-          <li data-i18n-html="own1"><a href="/card.pdf" target="_blank" rel="noopener" data-visit="card">Print the A6 card</a> at 100&nbsp;% (actual size). Its 50&nbsp;mm ruler must measure 50&nbsp;mm.</li>
-          <li data-i18n="own2">Tape it flat on the wall, 2 to 10 cm from the crack.</li>
-          <li data-i18n="own3">Photograph card and crack together, facing the wall, without flash.</li>
-        </ol>
-        <div class="cw-own__actions">
-          <label class="ui-button ui-button--tinted cw-file">
-            <svg class="ui-icon" aria-hidden="true"><use href="#i-camera"/></svg>
-            <span data-i18n="choose">Choose or take a photo</span>
-            <input type="file" id="file" accept="image/jpeg,image/png,image/*" capture="environment">
-          </label>
-          <label class="cw-check ui-subhead" id="prev-wrap" hidden><input type="checkbox" id="use-prev"> <span data-i18n="usePrev">Compare with my previous photo</span></label>
-        </div>
-        <p class="ui-footnote ui-secondary" data-i18n="privacy">Your photo goes to a private storage bucket and is deleted automatically after 24 hours. Decoding drops EXIF and GPS data. Please do not photograph people.</p>
-      </details>
+      <button class="ui-icon-button only-overlay" type="button" data-sidebar-close data-i18n-aria="closeSidebar" aria-label="Close the sidebar"><svg class="ui-icon"><use href="#i-x"/></svg></button>
     </div>
-
-    <aside class="cw-right" aria-label="Result">
-      <div id="result-empty" class="cw-result-empty ui-subhead ui-secondary" data-i18n="resultEmpty">The measurement, the agent's decision and every step of its reasoning will appear here.</div>
-      <div id="result" hidden>
-        <p class="cw-decision ui-title3" id="decision"></p>
-        <div class="cw-actions" id="actions"></div>
-        <div class="ui-stats cw-stats" id="stats"></div>
-        <p class="ui-footnote ui-secondary cw-truth" id="truth" hidden></p>
-        <div id="compare-box" hidden>
-          <h3 class="ui-headline" data-i18n="changeTitle">Change since the previous visit</h3>
-          <div class="ui-stats cw-stats" id="compare-stats"></div>
-        </div>
-        <h3 class="ui-headline cw-trace-title" data-i18n="traceTitle">What the agent did</h3>
-        <ol class="cw-trace" id="trace"></ol>
-        <details class="cw-quality">
-          <summary class="ui-subhead" data-i18n="qualityTitle">Photo quality and timings</summary>
-          <dl class="cw-dl ui-footnote" id="quality"></dl>
-        </details>
+    <nav class="ui-sidebar__scroll" aria-label="Views">
+      <a class="ui-nav-item" href="#walls" data-nav="walls"><svg class="ui-icon"><use href="#i-wall"/></svg><span data-i18n="navWalls">Walls</span><span class="ui-nav-item__count" data-count="cracks"></span></a>
+      <a class="ui-nav-item" href="#tickets" data-nav="tickets"><svg class="ui-icon"><use href="#i-ticket"/></svg><span data-i18n="navTickets">Tickets</span><span class="ui-nav-item__count" data-count="tickets"></span></a>
+      <a class="ui-nav-item" href="#settings" data-nav="settings"><svg class="ui-icon"><use href="#i-gear"/></svg><span data-i18n="navSettings">Settings</span></a>
+      <button class="ui-nav-item" type="button" data-help><svg class="ui-icon"><use href="#i-help"/></svg><span data-i18n="navHelp">Help</span></button>
+      <div class="ui-sidebar__heading" data-i18n="trackedCracks">Tracked cracks</div>
+      <div id="sideCracks" class="side-cracks"></div>
+    </nav>
+    <div class="ui-sidebar__footer">
+      <div class="service">
+        <span class="ui-status ui-status--info ui-subhead" id="svcLabel" data-i18n="svcChecking">Checking the service…</span>
+        <p class="ui-footnote ui-secondary" id="svcDetail"></p>
       </div>
-    </aside>
-  </section>
+    </div>
+  </aside>
+  <div class="sidebar-scrim" data-sidebar-close hidden></div>
 
-  <section class="cw-how" aria-labelledby="how-title">
-    <h2 class="ui-title2" id="how-title" data-i18n="howTitle">How it works</h2>
-    <ol class="cw-pipeline ui-callout">
-      <li data-i18n-html="how1"><b>Scale.</b> <code>cv2.aruco.CharucoDetector</code> finds the card; <code>findHomography</code> (MAGSAC) maps the photo to the wall plane in millimetres.</li>
-      <li data-i18n-html="how2"><b>Quality.</b> Blur is measured in pixels on the card's black-and-white edges; glare and tilt are checked before anything is measured.</li>
-      <li data-i18n-html="how3"><b>Width.</b> A multi-scale Hessian ridge filter finds the crack; each cross-section is deconvolved with the blur measured on the card, giving sub-pixel widths and an uncertainty.</li>
-      <li data-i18n-html="how4"><b>Change.</b> Both visits share the card's frame; if the card was re-glued, ORB + MAGSAC + ECC register the wall texture.</li>
-      <li data-i18n-html="how5"><b>Decision.</b> Amazon Nova 2 Lite on Bedrock chooses one tool (retake, closer photo, compare, ticket, next visit). A deterministic policy validates every choice and takes over if the model fails or the daily budget is used.</li>
-    </ol>
-    <p class="ui-footnote ui-secondary cw-disclaimer" data-i18n="disclaimer">CrackWatch is a monitoring and triage aid, not a structural diagnosis. Thresholds are configurable defaults, not engineering norms. Tickets are never sent without a human decision.</p>
-  </section>
-</main>
+  <div class="ui-main">
+    <!-- ===================== Toolbar ===================== -->
+    <header class="ui-toolbar" id="toolbar">
+      <button class="ui-icon-button ui-glass tb-sidebar-toggle hide-compact" type="button" data-sidebar-toggle data-i18n-aria="toggleSidebar" aria-label="Show or hide the sidebar"><svg class="ui-icon"><use href="#i-sidebar"/></svg></button>
+      <button class="ui-icon-button ui-glass tb-back" type="button" id="backBtn" hidden data-i18n-aria="back" aria-label="Back"><svg class="ui-icon"><use href="#i-chev-l"/></svg></button>
+      <div class="ui-toolbar__title tb-title">
+        <h1 id="tbTitle">Walls</h1>
+        <p class="ui-footnote ui-secondary" id="tbSub"></p>
+      </div>
+      <nav class="ui-tabs-top ui-glass" aria-label="Views">
+        <a href="#walls" data-nav="walls" data-i18n="navWalls">Walls</a><a href="#tickets" data-nav="tickets" data-i18n="navTickets">Tickets</a><a href="#settings" data-nav="settings" data-i18n="navSettings">Settings</a>
+      </nav>
+      <div class="ui-toolbar__group ui-glass" id="crackTools" hidden>
+        <button class="ui-icon-button" type="button" id="shareBtn" data-i18n-aria="shareLink" aria-label="Copy a share link"><svg class="ui-icon"><use href="#i-link"/></svg></button>
+        <button class="ui-icon-button" type="button" id="icsBtn" data-i18n-aria="addReminder" aria-label="Add the next visit to your calendar"><svg class="ui-icon"><use href="#i-cal"/></svg></button>
+        <button class="ui-icon-button" type="button" id="pdfBtn" data-i18n-aria="pdfReport" aria-label="Share a PDF report"><svg class="ui-icon"><use href="#i-doc"/></svg></button>
+      </div>
+      <div class="ui-toolbar__group ui-glass lang-switch" role="group" aria-label="Language">
+        <button class="ui-icon-button" type="button" data-lang="en" lang="en" aria-label="English" aria-pressed="true">EN</button>
+        <button class="ui-icon-button" type="button" data-lang="fr" lang="fr" aria-label="Français" aria-pressed="false">FR</button>
+      </div>
+      <button class="ui-button ui-button--prominent hide-compact" type="button" data-new-photo><svg class="ui-icon"><use href="#i-camera"/></svg><span data-i18n="newPhoto">New photo</span></button>
+    </header>
 
-<footer class="cw-foot ui-footnote ui-secondary">
-  <span>CrackWatch · OpenCV 5.0.0 · AWS Lambda arm64 · Amazon Bedrock</span>
-  <span id="health"></span>
-</footer>
-<script src="/app.js" type="module"></script>
+    <main id="content" tabindex="-1">
+      <section class="view page" id="view-walls" data-view="walls" aria-labelledby="tbTitle"></section>
+      <section class="view page" id="view-crack" data-view="crack" hidden aria-labelledby="tbTitle"></section>
+      <section class="view page" id="view-inspect" data-view="inspect" hidden aria-labelledby="tbTitle"></section>
+      <section class="view page" id="view-tickets" data-view="tickets" hidden aria-labelledby="tbTitle"></section>
+      <section class="view page" id="view-settings" data-view="settings" hidden aria-labelledby="tbTitle"></section>
+      <section class="view page" id="view-shared" data-view="shared" hidden aria-labelledby="tbTitle"></section>
+    </main>
+  </div>
+
+  <!-- ===================== iPhone tab bar ===================== -->
+  <nav class="ui-tabbar" data-minimize aria-label="Views">
+    <div class="ui-tabbar__tabs ui-glass">
+      <a class="ui-tabbar__item" href="#walls" data-nav="walls" aria-current="page"><svg class="ui-icon"><use href="#i-wall"/></svg><span data-i18n="navWalls">Walls</span></a>
+      <a class="ui-tabbar__item" href="#tickets" data-nav="tickets"><svg class="ui-icon"><use href="#i-ticket"/></svg><span data-i18n="navTickets">Tickets</span><span class="ui-badge" data-badge="tickets" hidden></span></a>
+      <a class="ui-tabbar__item" href="#settings" data-nav="settings"><svg class="ui-icon"><use href="#i-gear"/></svg><span data-i18n="navSettings">Settings</span></a>
+    </div>
+    <button class="ui-tabbar__search ui-glass" type="button" data-new-photo data-i18n-aria="newPhoto" aria-label="New photo"><svg class="ui-icon"><use href="#i-camera"/></svg></button>
+  </nav>
+</div>
+
+<!-- ===================== Sheet: new photo (which crack, how to, file) ===================== -->
+<dialog class="ui-sheet" id="sheet-photo" aria-labelledby="photoTitle">
+  <div class="ui-sheet__grabber"></div>
+  <div class="ui-sheet__bar">
+    <button class="ui-button ui-button--plain" type="button" data-sheet-close data-i18n="cancel">Cancel</button>
+    <h2 class="ui-sheet__title" id="photoTitle" data-i18n="newPhoto">New photo</h2>
+    <span></span>
+  </div>
+  <div class="ui-sheet__body" id="photoBody"></div>
+</dialog>
+
+<!-- ===================== Sheet: ticket review (human in the loop) ===================== -->
+<dialog class="ui-sheet sheet-wide" id="sheet-ticket" aria-labelledby="ticketTitle">
+  <div class="ui-sheet__grabber"></div>
+  <div class="ui-sheet__bar">
+    <button class="ui-button ui-button--plain" type="button" data-sheet-close data-i18n="close">Close</button>
+    <h2 class="ui-sheet__title" id="ticketTitle" data-i18n="ticketReview">Ticket review</h2>
+    <span></span>
+  </div>
+  <div class="ui-sheet__body" id="ticketBody"></div>
+</dialog>
+
+<!-- ===================== Sheet: help & how it works ===================== -->
+<dialog class="ui-sheet sheet-wide" id="sheet-help" aria-labelledby="helpTitle">
+  <div class="ui-sheet__grabber"></div>
+  <div class="ui-sheet__bar">
+    <span></span>
+    <h2 class="ui-sheet__title" id="helpTitle" data-i18n="navHelp">Help</h2>
+    <button class="ui-button ui-button--plain" type="button" data-sheet-close data-i18n="done">Done</button>
+  </div>
+  <div class="ui-sheet__body" id="helpBody"></div>
+</dialog>
+
+<!-- ===================== Sheet: crack details (name, place) ===================== -->
+<dialog class="ui-sheet" id="sheet-edit" aria-labelledby="editTitle">
+  <div class="ui-sheet__grabber"></div>
+  <form id="editForm" autocomplete="off" novalidate>
+    <div class="ui-sheet__bar">
+      <button class="ui-button ui-button--plain" type="button" data-sheet-close data-i18n="cancel">Cancel</button>
+      <h2 class="ui-sheet__title" id="editTitle" data-i18n="editCrack">Crack details</h2>
+      <button class="ui-button ui-button--prominent ui-button--sm" type="submit" data-i18n="save">Save</button>
+    </div>
+    <div class="ui-sheet__body form-body">
+      <div class="ui-field">
+        <label class="ui-field__label" for="fName" data-i18n="fieldName">Name</label>
+        <input class="ui-input" id="fName" name="name" required maxlength="60" enterkeyhint="next" autocapitalize="sentences">
+      </div>
+      <div class="ui-field">
+        <label class="ui-field__label" for="fPlace" data-i18n="fieldPlace">Where</label>
+        <input class="ui-input" id="fPlace" name="place" maxlength="80" enterkeyhint="done" autocapitalize="sentences">
+        <p class="ui-field__hint" data-i18n="fieldPlaceHint">Room and wall, for example “Kitchen, east wall”. Stays on this device.</p>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== Alert ===================== -->
+<dialog class="ui-sheet ui-alert ui-glass" id="alert" aria-labelledby="alertTitle" aria-describedby="alertText">
+  <div class="ui-sheet__body"><h2 id="alertTitle"></h2><p id="alertText"></p></div>
+  <div class="ui-alert__actions">
+    <button class="ui-button" type="button" id="alertCancel" data-i18n="cancel">Cancel</button>
+    <button class="ui-button ui-button--destructive" type="button" id="alertOk"></button>
+  </div>
+</dialog>
+
+<input type="file" id="fileInput" accept="image/jpeg,image/png,image/*" capture="environment" hidden>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
