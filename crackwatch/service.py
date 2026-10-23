@@ -158,10 +158,11 @@ def render_closeup(bgr, res, max_side=960) -> dict | None:
             "px_per_mm": round(float(r), 3), "size_px": [W, H]}
 
 
-def order_by_centre(res, shape) -> None:
-    """On a real wall several ridges can be measured (a mortar joint, a wall edge next to the crack). The user aims the
-    centre of the photo at the crack, so the main crack is the one passing closest to the image centre, not the longest.
-    Each candidate also gets its outline in overlay pixels, so the app can let the user tap another one."""
+def add_outlines(res, shape) -> None:
+    """The main crack is chosen in measure_image (crackwatch/selection.py: card proximity, cavity darkness,
+    man-made straightness, fragments linked across the card). Here every candidate gets its outline in overlay
+    pixels so the app can draw it and let the user tap another one. A candidate made of fragments on both
+    sides of the card has `outline_breaks`: indices where a new fragment starts (no line drawn across the card)."""
     dbg = getattr(res, "debug", None) or {}
     card, comps = dbg.get("card"), dbg.get("comps") or []
     if card is None or not res.cracks:
@@ -172,15 +173,33 @@ def order_by_centre(res, shape) -> None:
     for cr in res.cracks:
         i = cr.get("id")
         if i is None or i >= len(comps):
-            cr["center_dist"] = 1.0
             continue
-        pts = apply_h(card.H_img_from_board, comps[i]["pts_mm"])
+        c = comps[i]
+        pts = apply_h(card.H_img_from_board, c["pts_mm"])
         cr["center_dist"] = round(float(np.min(np.linalg.norm(pts - centre, axis=1)) / diag), 3)
-        step = max(1, len(pts) // 80)
-        cr["outline_px"] = np.round(pts[::step] * s).astype(int).tolist()
-        w = np.asarray(comps[i].get("width_smooth_mm", comps[i]["width_mm"]), float)
-        cr["outline_w_mm"] = [round(float(v), 2) for v in w[::step]]      # width at each outline point, for colouring
-    res.cracks.sort(key=lambda c: c.get("center_dist", 1.0))
+        ww = np.asarray(c.get("width_smooth_mm", c["width_mm"]), float)
+        sizes = c.get("part_sizes") or [len(pts)]
+        line, wl, breaks, o = [], [], [], 0
+        for n in sizes:
+            seg = slice(o, o + n)
+            order = _order_along(pts[seg])
+            step = max(1, len(pts) // 80)
+            if line:
+                breaks.append(len(line))
+            line += np.round(pts[seg][order][::step] * s).astype(int).tolist()
+            wl += [round(float(v), 2) for v in ww[seg][order][::step]]
+            o += n
+        cr["outline_px"], cr["outline_w_mm"] = line, wl          # width at each outline point, for colouring
+        if breaks:
+            cr["outline_breaks"] = breaks
+
+
+def _order_along(p):
+    """Order skeleton points along the fragment's principal axis (a polyline the app can draw)."""
+    c = p.mean(0)
+    d = p - c
+    _, vec = np.linalg.eigh(d.T @ d)
+    return np.argsort(d @ vec[:, 1])
 
 
 def _round(o, nd=3):
@@ -215,7 +234,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
     res = measure_image(current, keep_debug=True)
-    order_by_centre(res, current.shape)
+    add_outlines(res, current.shape)
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
     state = AgentState(inspection_id, previous_inspection_id="previous-visit" if previous is not None else None,

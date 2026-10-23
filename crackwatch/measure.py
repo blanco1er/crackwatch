@@ -780,7 +780,7 @@ def summarize(rect: Rectified, comps, quality, card: CardDetection, smooth_mm=2.
     return cracks
 
 
-ZONE_MARGIN_MM = 40.0
+ZONE_MARGIN_MM = 100.0       # protocol: the card is placed on the crack or at most 10 cm from it
 
 
 def zone_summary(rect: Rectified, comps, cracks, card: CardDetection, margin_mm=ZONE_MARGIN_MM, max_window_mm=6.0):
@@ -851,7 +851,8 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
         return MeasureResult("no_search_area", q, card_info)
     comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board)
     cam_c = camera_center_board(card.H_img_from_board, gray.shape)
-    cracks = summarize(rect, comps, q, card, cam_c=cam_c)
+    from .selection import select_cracks          # local import: select.py builds on this module
+    comps, cracks = select_cracks(comps, rect, q, card, cam_c=cam_c)
     res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"],
                         zone=zone_summary(rect, comps, cracks, card))
     if keep_debug:
