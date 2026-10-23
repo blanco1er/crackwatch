@@ -97,7 +97,8 @@ RETAKE = {
     "card_occluded": "Part of the card's outline is hidden: hold the card by one corner with a fingertip so its four "
                      "edges stay visible (or stick it with tape).",
     "card_not_flat": "Press the card flat against the wall: it must not bend or stand off the wall.",
-    "card_wrong_size": "This card is not bank-card size (85.6 x 54 mm). Use a bank, transport or loyalty card.",
+    "card_wrong_size": "The outline does not have bank-card proportions (85.6 x 54 mm): use a bank, transport or "
+                       "loyalty card, and keep fingers off its edges (hold it by one corner).",
 }
 
 
@@ -939,7 +940,10 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
             # nothing to check it against -> lower confidence, larger uncertainty (unknown focal)
             if len(weak) > 1 and any(stats[s] is not None and stats[s]["coverage"] < 0.45 for s in weak if s != missing[0]):
                 return fail(weak)
-            todo, need_support = missing, 0.0
+            # Synthetic evaluation: a side rebuilt with NO visible edge under it (finger laid along the edge) was
+            # wrong by 7-12 % in 3 of 5 accepted cases, so some edge evidence along the rebuilt line is required;
+            # otherwise the photo is refused naming the hidden edge.
+            todo, need_support = missing, 0.2
         else:
             Qn = _corners_from_lines(lines)
             if Qn is None:
@@ -1234,7 +1238,9 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
         if "fail" in out:
             # report "occluded"/"wrong size" only for something that looks like a card (>= 2 rounded corners);
             # rectangles of the wall, a printed chart or a ChArUco board stay "card not found"
-            if sum(c >= 0.5 for c in out.get("corners", [])) >= 2 and occl is None:
+            n_c = sum(c >= 0.5 for c in out.get("corners", []))
+            if (n_c >= 2 or (n_c >= 1 and out["sides"])) and (
+                    occl is None or (not occl["sides"] and out["sides"])):    # prefer a report naming the hidden edge
                 occl = out
             continue
         e, asp, f = _best_aspect(out["Q"], bgr.shape, p, strict=True)
@@ -1265,6 +1271,13 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
             keep.append(ci)
     best = max(keep, key=lambda c: c[0]) if keep else None
     if best is None:
+        if occl is not None and occl["fail"] == "card_inconsistent" and not occl["sides"]:
+            # two neighbouring corners without a rounded card corner: something straight (a finger) lies along
+            # the side joining them, and its outline was taken for the card's edge
+            weak_c = [k for k in range(4) if occl["corners"][k] < 0.5]
+            if len(weak_c) == 2 and (weak_c[1] - weak_c[0]) in (1, 3):
+                k0 = weak_c[0] if weak_c[1] - weak_c[0] == 1 else weak_c[1]
+                occl = dict(occl, sides=[_image_side(occl["H"], k0)], coverage=[0.0])
         if occl is not None and occl["fail"] == "card_inconsistent" and not occl["sides"]:
             rep.status = "card_wrong_size"
             rep.detail = f"four straight edges found but not in ID-1 proportions (aspect error {100 * occl['aspect_err']:.1f} %)"
@@ -1412,7 +1425,15 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
                       f"{max(stats[s]['robust_sigma_px'] for s in sel):.2f} px")
     elif recovered is None and aspect_err > p.aspect_tol:
         sk = [stats[s]["skin_frac"] if stats[s] is not None else 0.0 for s in range(4)]
-        if max(sk) >= 0.25:                     # a finger along an edge: its outline was taken for the card's
+        weak_c = [k for k in range(4) if out["corners"][k] < 0.5]
+        if len(weak_c) == 2 and (weak_c[1] - weak_c[0]) in (1, 3):
+            # two neighbouring corners without a rounded card corner: a finger (or anything straight) along the
+            # side joining them was taken for the card's edge
+            s_ = weak_c[0] if weak_c[1] - weak_c[0] == 1 else weak_c[1]
+            rep.status = "card_occluded"
+            rep.detail = f"something straight along the {edges[s_]['image_side']} edge hides it (card proportions do not match ID-1)"
+            worst = edges[s_]
+        elif max(sk) >= 0.25:                   # a finger along an edge: its outline was taken for the card's
             s_ = int(np.argmax(sk))
             rep.status = "card_occluded"
             rep.detail = f"a finger seems to cover the {edges[s_]['image_side']} edge (card proportions do not match ID-1)"

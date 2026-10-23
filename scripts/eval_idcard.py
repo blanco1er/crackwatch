@@ -66,7 +66,7 @@ def _widths(img, reference, sc):
 
 
 def run_one(args):
-    seed, widths = args
+    seed, widths, exif = args
     sc = make_scene(seed)
     if sc is None:
         return None
@@ -80,7 +80,7 @@ def run_one(args):
         np.column_stack([(apply_h(Hc, [(42.8 + 0.05, 27)])[0] - apply_h(Hc, [(42.8, 27)])[0]) / 0.05,
                          (apply_h(Hc, [(42.8, 27 + 0.05)])[0] - apply_h(Hc, [(42.8, 27)])[0]) / 0.05])))))
     t0 = time.time()
-    det, rep = detect_idcard(sc["img_idcard"])
+    det, rep = detect_idcard(sc["img_idcard"], focal_px=cam["focal_px"] if exif else None)
     r["t_detect"] = time.time() - t0
     r["status"] = rep.status
     r["detail"] = rep.detail
@@ -190,19 +190,24 @@ def main():
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed0", type=int, default=50000)
     ap.add_argument("--widths", action="store_true")
+    ap.add_argument("--exif", action="store_true", help="give the true focal to the card detector (EXIF case)")
     ap.add_argument("--out", default="eval_idcard")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     t0 = time.time()
     with Pool(a.workers) as pool:
-        R = pool.map(run_one, [(s, a.widths) for s in range(a.seed0, a.seed0 + a.n)], chunksize=1)
+        R = pool.map(run_one, [(s, a.widths, a.exif) for s in range(a.seed0, a.seed0 + a.n)], chunksize=1)
     R = [r for r in R if r]
-    json.dump(R, open(os.path.join(a.out, "idcard_results.json"), "w"), default=float)
+    json.dump(R, open(os.path.join(a.out, "idcard_results%s.json" % ("_widths" if a.widths else ("_exif" if a.exif else ""))), "w"),
+              default=float)
     md = ["# Carte bancaire comme référence d'échelle — évaluation synthétique", "",
           f"Généré par `scripts/eval_idcard.py` le {time.strftime('%Y-%m-%d %H:%M')}, OpenCV {cv2.__version__}, graines {a.seed0}–{a.seed0 + a.n - 1}.", ""]
     md += summarize(R, a.widths)
-    open(os.path.join(a.out, "RESULTS-carte.md" if not a.widths else "RESULTS-carte-largeurs.md"), "w").write("\n".join(md) + "\n")
+    name = "RESULTS-carte-largeurs.md" if a.widths else ("RESULTS-carte-exif.md" if a.exif else "RESULTS-carte.md")
+    if a.exif:
+        md.insert(3, "Mode EXIF : la vraie focale est donnée au détecteur (comme si l'app envoyait FocalLengthIn35mmFilm).")
+    open(os.path.join(a.out, name), "w").write("\n".join(md) + "\n")
     print("\n".join(md))
     print(f"[{time.time() - t0:.0f} s]")
 

@@ -55,6 +55,18 @@ def test_detect_clean_card():
     assert info["reference"] == "idcard" and len(info["corners_img_px"]) == 4
 
 
+def test_known_focal():
+    """EXIF focal (35 mm equivalent) path: same detection, focal fixed instead of estimated."""
+    from crackwatch.service import focal_px_from_35mm
+    sc, det, rep = _ok_scene()
+    f_px = sc["camera"]["focal_px"]
+    f35 = f_px / np.hypot(1600, 1200) * 43.27
+    assert abs(focal_px_from_35mm(f35, (1200, 1600)) - f_px) < 1e-6 and focal_px_from_35mm(None, (1200, 1600)) is None
+    d2, r2 = detect_idcard(sc["img_idcard"], focal_px=f_px)
+    assert d2 is not None and d2.focal_source == "exif"
+    assert card_center_err(d2, sc) < 0.01
+
+
 def test_recover_side_exact():
     """Three lines of a known rectangle seen in perspective + the focal -> the fourth line is recovered."""
     K = np.array([[1400.0, 0, 799.5], [0, 1400.0, 599.5], [0, 0, 1]])
@@ -116,7 +128,7 @@ def test_finger_over_short_edge():
             if det.recovered_edge is not None:
                 assert det.confidence < 0.7 and rep.quality.get("card_occluded_edge") in ("left", "right", "top", "bottom")
         else:
-            assert rep.status in ("card_occluded", "card_not_found", "card_too_small", "card_not_flat"), rep.status
+            assert rep.status in ("card_occluded", "card_wrong_size", "card_not_found", "card_too_small", "card_not_flat"), rep.status
             if rep.status == "card_occluded":
                 assert rep.quality.get("card_occluded_edge") in ("left", "right", "top", "bottom")
         n_checked += 1

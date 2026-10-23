@@ -719,18 +719,19 @@ class MeasureResult:
 
 def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
                   seg_params: SegParams = SegParams(), keep_debug=False, paper_rect_mm=None,
-                  reference="charuco") -> MeasureResult:
+                  reference="charuco", focal_px=None) -> MeasureResult:
     """`paper_rect_mm`: board-frame rectangle hidden from the crack search instead of the card's own
     paper (used for the printed test chart, whose board sits on a larger sheet).
     `reference`: "charuco" (printed card), "idcard" (any bank/loyalty card, see idcard.py) or "auto"
     (ChArUco if found, else a wallet card). A wallet card found but unusable gives "reference_rejected"
-    with quality["retake_reason"]."""
+    with quality["retake_reason"]. `focal_px`: camera focal in pixels of this image if known (EXIF), used by
+    the wallet-card reference only."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
     card = detect_card(gray) if reference != "idcard" else None
     ref = None
     if card is None and reference in ("idcard", "auto"):
         from .idcard import detect_idcard
-        card, ref = detect_idcard(bgr)
+        card, ref = detect_idcard(bgr, focal_px=focal_px)
     q = estimate_quality(gray, card)
     if ref is not None:
         q.update(ref.quality_fields())

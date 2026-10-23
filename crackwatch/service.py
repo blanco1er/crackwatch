@@ -34,6 +34,19 @@ def decode_image(data: bytes) -> np.ndarray:
     return img
 
 
+def focal_px_from_35mm(focal_35mm, shape):
+    """EXIF FocalLengthIn35mmFilm -> focal in pixels of this image (35 mm equivalence is on the diagonal,
+    43.27 mm). The app reads it before upload, since decoding drops EXIF. None if absent or implausible."""
+    try:
+        f = float(focal_35mm)
+    except (TypeError, ValueError):
+        return None
+    if not 10.0 <= f <= 200.0:
+        return None
+    h, w = shape[:2]
+    return f / 43.27 * math.hypot(w, h)
+
+
 def _width_color(t: float):
     # sequential: warm yellow (thin) -> deep red (wide), BGR
     a = np.array([60, 200, 255], np.float32)
@@ -139,12 +152,14 @@ def public_measurement(res) -> dict:
 
 
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
-            inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto") -> dict:
+            inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto",
+            focal_35mm: float | None = None) -> dict:
     """Run one inspection. `retakes` = photos already re-requested in this visit (client-held).
     `reference`: "auto" (printed ChArUco card if present, else a wallet card), "charuco" or "idcard"."""
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
-    res = measure_image(current, keep_debug=True, reference=reference)
+    f_px = focal_px_from_35mm(focal_35mm, current.shape)
+    res = measure_image(current, keep_debug=True, reference=reference, focal_px=f_px)
     current = redact_reference(current, res)       # wallet card numbers never leave in a returned image
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
