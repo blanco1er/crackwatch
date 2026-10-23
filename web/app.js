@@ -531,7 +531,7 @@ function renderResult() {
 // several ridges measured (joint, wall edge…): the one closest to the photo centre is chosen; tap another to switch
 function candidatesPhoto(c, sh, cands) {
   const [Wp, Hp] = sh.ovSize;
-  const box = h('div', { class: 'photo photo--free', style: `aspect-ratio:${Wp}/${Hp}; width:min(100%, calc(62vh * ${(Wp / Hp).toFixed(4)}))` });
+  const box = h('div', { class: 'photo photo--free', style: `aspect-ratio:${Wp}/${Hp}; width:min(100%, calc(44vh * ${(Wp / Hp).toFixed(4)}))` });
   const im = h('img', { alt: t('overlayAlt') }); setImg(im, sh.img); box.append(im);
   const svg = s('svg', { viewBox: `0 0 ${Wp} ${Hp}`, class: 'cands' });
   cands.forEach((cr, i) => {
