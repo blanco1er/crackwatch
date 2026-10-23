@@ -265,3 +265,6 @@ textarea.field { min-height: 96px; resize: vertical; }
 .photo img.is-cover { object-fit: cover; }
 .tabbar a { white-space: nowrap; padding: 0 20px; }
 .crack-card .hero { flex-wrap: nowrap; }
+.cards li, .crack-card { min-width: 0; }
+.crack-card__bottom { flex-wrap: wrap; row-gap: 10px; }
+.chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
