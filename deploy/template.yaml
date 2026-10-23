@@ -112,7 +112,7 @@ Resources:
       Policies:
         - Statement:
             - Effect: Allow
-              Action: [s3:GetObject, s3:PutObject]
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]   # DeleteObject: wallet-card uploads are redacted or removed
               Resource: !Sub "${UploadsBucket.Arn}/uploads/*"
             - Effect: Allow
               Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]

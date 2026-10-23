@@ -209,8 +209,27 @@ class App:
         except Exception as e:  # missing / expired upload
             return err("image_unavailable", 400, type(e).__name__)
         planner = self.planner_factory(self.llm_allowed) if self.planner_factory else None
-        out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner)
+        ref = data.get("reference") if data.get("reference") in ("auto", "charuco", "idcard") else "auto"
+        out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner, reference=ref,
+                      focal_35mm=data.get("focal_35mm"))
         out["source"] = cur_src
+        redacted = out.pop("_redacted_jpeg", None)
+        if redacted is not None and cur_src == "upload":
+            # wallet-card photo: replace the raw upload by the redacted copy (card numbers never kept), or delete it
+            key = str(data["image"]["key"])
+            try:
+                if redacted:
+                    self.blobs.put(key, redacted)
+                else:
+                    self.blobs.delete(key)
+                out["upload_redacted"] = True
+            except Exception as e:  # never return a result while the raw card photo may remain stored
+                self.log(json.dumps({"event": "redact_store_failed", "error": type(e).__name__}))
+                try:
+                    self.blobs.delete(key)
+                    out["upload_redacted"] = True
+                except Exception:
+                    return err("redaction_failed", 500)
         names = [t["action"]["name"] for t in out["trace"]]
         planners = sorted({t["action"]["planner"] for t in out["trace"]})
         self.store.put(f"INSP#{out['inspection_id']}", "TRACE",
@@ -261,6 +280,12 @@ class S3Blobs:
     def get(self, key):
         return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
 
+    def put(self, key, data: bytes):
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType="image/jpeg")
+
+    def delete(self, key):
+        self.s3.delete_object(Bucket=self.bucket, Key=key)
+
 
 class LocalBlobs:
     """Local stand-in for S3 (scripts/serve_local.py): the browser posts the same multipart form."""
@@ -293,3 +318,13 @@ class LocalBlobs:
     def get(self, key):
         with open(os.path.join(self.root, key.replace("/", "_")), "rb") as f:
             return f.read()
+
+    def put(self, key, data: bytes):
+        with open(os.path.join(self.root, key.replace("/", "_")), "wb") as f:
+            f.write(data)
+
+    def delete(self, key):
+        try:
+            os.remove(os.path.join(self.root, key.replace("/", "_")))
+        except FileNotFoundError:
+            pass

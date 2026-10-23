@@ -13,6 +13,7 @@ import numpy as np
 
 from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
+from .idcard import redact_reference
 from .measure import apply_h, measure_image
 
 MAX_SIDE = 4032          # longer photo side kept for measurement (12 MP phone photos pass unchanged)
@@ -41,6 +42,19 @@ W_COLOR_MIN_MM, W_COLOR_MAX_MM = 0.2, 5.0
 def _width_t(w_mm: float) -> float:
     w = max(float(w_mm), 1e-6)
     return float(np.clip(math.log(w / W_COLOR_MIN_MM) / math.log(W_COLOR_MAX_MM / W_COLOR_MIN_MM), 0, 1))
+
+
+def focal_px_from_35mm(focal_35mm, shape):
+    """EXIF FocalLengthIn35mmFilm -> focal in pixels of this image (35 mm equivalence is on the diagonal,
+    43.27 mm). The app reads it before upload, since decoding drops EXIF. None if absent or implausible."""
+    try:
+        f = float(focal_35mm)
+    except (TypeError, ValueError):
+        return None
+    if not 10.0 <= f <= 200.0:
+        return None
+    h, w = shape[:2]
+    return f / 43.27 * math.hypot(w, h)
 
 
 def _width_color(t: float):
@@ -216,9 +230,11 @@ def public_measurement(res) -> dict:
     j = res.to_json()
     card = j.get("card") or {}
     return _round({"status": j["status"], "quality": {k: j["quality"].get(k) for k in
-                   ("blur_sigma_px", "saturated_frac", "tilt_deg_est", "card_px_per_mm", "card_corners", "card_reproj_rms_px")
+                   ("blur_sigma_px", "saturated_frac", "tilt_deg_est", "card_px_per_mm", "card_corners", "card_reproj_rms_px",
+                    "reference", "retake_reason", "card_occluded_edge", "card_occluded_corners", "scale_rel_unc")
                    if k in j["quality"]},
-                   "card": {k: card.get(k) for k in ("spec", "corners", "reproj_rms_px", "rectified_px_per_mm")} if card else None,
+                   "card": {k: card.get(k) for k in ("spec", "corners", "reproj_rms_px", "rectified_px_per_mm", "reference",
+                                                     "scale_rel_unc", "confidence", "rebuilt_edge") if k in card} if card else None,
                    "cracks": j["cracks"][:3], "n_cracks": len(j["cracks"])})
 
 
@@ -229,12 +245,18 @@ def overlay_size(shape):
 
 
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
-            inspection_id: str | None = None, log=lambda *_: None) -> dict:
-    """Run one inspection. `retakes` = photos already re-requested in this visit (client-held)."""
+            inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto",
+            focal_35mm: float | None = None) -> dict:
+    """Run one inspection. `retakes` = photos already re-requested in this visit (client-held).
+    `reference`: "auto" (printed ChArUco card if present, else a wallet card), "charuco" or "idcard"."""
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
-    res = measure_image(current, keep_debug=True)
+    f_px = focal_px_from_35mm(focal_35mm, current.shape)
+    res = measure_image(current, keep_debug=True, reference=reference, focal_px=f_px)
     add_outlines(res, current.shape)
+    raw = current
+    current = redact_reference(current, res)       # wallet card numbers never leave in a returned image
+    wallet_seen = current is not raw               # a wallet card was found (used or rejected): redacted copy differs
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
     state = AgentState(inspection_id, previous_inspection_id="previous-visit" if previous is not None else None,
@@ -243,13 +265,14 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
 
     def do_compare(args, st):
         t1 = time.time()
-        prev = measure_image(previous, keep_debug=True)
+        prev = measure_image(previous, keep_debug=True, reference=reference)
         st.comparison = compare(prev, res)
         timings["compare_ms"] = round(1000 * (time.time() - t1))
         out["comparison"] = _round({k: v for k, v in st.comparison.items() if k != "T_board1_from_board2"})
         out["previous_measurement"] = public_measurement(prev)
         if st.comparison.get("status") == "ok":
-            out["before_after"] = render_before_after(previous, prev, current, res, st.comparison["T_board1_from_board2"])
+            out["before_after"] = render_before_after(redact_reference(previous, prev), prev, current, res,
+                                                      st.comparison["T_board1_from_board2"])
         return obs
 
     def wait_for_inspector(args, st):
@@ -269,6 +292,10 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         out["ticket"] = {"id": uuid.uuid4().hex[:10], "status": "pending_human_approval", **last["args"]}
     elif last["name"] == "schedule_next_visit":
         out["next_visit_days"] = last["args"].get("days")
+    if wallet_seen:
+        # the stored upload must not keep the card's numbers either: the API overwrites it with this copy
+        ok, buf = cv2.imencode(".jpg", current, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        out["_redacted_jpeg"] = buf.tobytes() if ok else b""
     out.update({"measurement": public_measurement(res), "trace": _round(trace),
                 "overlay_jpeg_b64": base64.b64encode(render_overlay(current, res, focus)).decode(),
                 "closeup": render_closeup(current, res) if last["name"] not in ("request_retake",) else None,
