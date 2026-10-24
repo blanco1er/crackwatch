@@ -349,6 +349,7 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
     trace: d.trace, quality: d.measurement.quality, card: d.measurement.card, cracks: d.measurement.cracks, comparison: d.comparison,
     ticket: d.ticket ? { id: d.ticket.id, severity: d.ticket.severity, evidence: d.ticket.evidence, status: 'pending_human_approval' } : null,
     timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, ph: phKey, truth: gt, inspectionId: d.inspection_id, ovSize: d.overlay_size || null,
+    geo: d.card_geometry || null, focal: d.focal_35mm || null,   // card geometry measured BEFORE the bank card was blurred: reused at the next visit
     cardPx: d.card_outline_px || null, firstId: d.measurement.cracks?.[0]?.id ?? null, stationsCmp: d.stations_compare && d.stations_compare.status === 'ok' ? d.stations_compare : null };
   let v;
   if (visitIndex != null) {
@@ -401,7 +402,8 @@ async function measureOwn(file) {
     const prevShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.key && Date.now() - x.at < 23 * 3600000 && !(sameVisit && x.visitId === lv.id));
     const retakes = sameVisit ? lv.shots.filter((x) => ['request_retake', 'request_closer_photo'].includes(x.decision?.name)).length : 0;
     const pst = sameVisit ? null : prevStations(c);
-    const d = await inspectApi({ image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst, focal_35mm: prep.focal });
+    const d = await inspectApi({ image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst, focal_35mm: prep.focal,
+      previous_card: prevShot ? prevShot.geo || null : null, previous_focal_35mm: prevShot ? prevShot.focal || null : null });
     warm = true;
     const sh = await recordShot(c, d, { source: 'upload', key: up.key });
     // from now on only the server's images are shown (a bank card in the photo is blurred there); the local,
@@ -473,7 +475,13 @@ function stepArt(kind) {
   }
   return svg;
 }
+let guidePreloaded = false;
 function renderMeasure() {
+  // the live camera guide (OpenCV.js, ~3 MB) starts loading once the home screen is idle, not when the camera opens
+  if (!guidePreloaded && typeof camera.preloadGuide === 'function' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    guidePreloaded = true;
+    (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => { try { camera.preloadGuide(); } catch { /* the camera loads it later */ } }, { timeout: 4000 });
+  }
   const root = $('#view-measure'); root.textContent = '';
   root.append(h('h1', { class: 'display' }, t('valueLine')),
     h('p', { class: 'lede' }, t('valueSub')),
@@ -869,7 +877,8 @@ async function attachTo(draft, x) {
     S.run = { mode: 'own', crackId: x.id, phase: 'measuring', photo: await idb.get(sh.img) };
     go('analyze');
     try {
-      const d = await inspectApi({ image: { key: sh.key }, previous: prev ? { key: prev.key } : null, retakes: 0, previous_stations: pst });
+      const d = await inspectApi({ image: { key: sh.key }, previous: prev ? { key: prev.key } : null, retakes: 0, previous_stations: pst,
+        previous_card: prev ? prev.geo || null : null, previous_focal_35mm: prev ? prev.focal || null : null });
       const nsh = await recordShot(x, d, { source: 'upload', key: sh.key });
       await dropImages(draft); data.cracks = data.cracks.filter((y) => y.id !== draft.id); save();
       S.run = { ...S.run, phase: 'done', result: d, shot: nsh };

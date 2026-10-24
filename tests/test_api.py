@@ -186,6 +186,32 @@ def test_job_flow():
     assert json.loads(a.handle("GET", "/api/job/" + "a" * 24, {}, b"", {}, "1").body)["error"] == "analysis_timeout"
 
 
+def test_previous_focal_reaches_the_comparison():
+    """The focal of visit 1 is kept with its upload (the stored copy may be a re-encoded JPEG without EXIF) and
+    is used when visit 1 is measured again for the comparison."""
+    from crackwatch import service
+    seen = {}
+    real = service.inspect
+
+    def spy(cur, prev, **kw):
+        seen.update(kw)
+        return real(cur, prev, **kw)
+    a = api.App(MemStore(), MemBlobs(), log=lambda *_: None)
+    img = open(os.path.join(api.WEB_DIR, "samples", "close.jpg"), "rb").read()
+    k1, k2 = "uploads/2026-10-24/" + "1" * 32 + ".jpg", "uploads/2026-10-24/" + "2" * 32 + ".jpg"
+    a.blobs.put(k1, img)
+    a.blobs.put(k2, img)
+    service.inspect = spy
+    try:
+        r = a.handle("POST", "/api/inspect", {}, json.dumps({"image": {"key": k1}, "focal_35mm": 24}).encode(), {}, "1")
+        assert r.status == 200 and json.loads(r.body)["focal_35mm"] == 24.0
+        assert a.store.get(f"UPLOAD#{k1}", "META")["focal_35mm"] == 24.0
+        r = a.handle("POST", "/api/inspect", {}, json.dumps({"image": {"key": k2}, "previous": {"key": k1}}).encode(), {}, "1")
+        assert r.status == 200 and seen["previous_focal_35mm"] == 24.0
+    finally:
+        service.inspect = real
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

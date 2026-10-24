@@ -961,17 +961,22 @@ class MeasureResult:
 
 def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
                   seg_params: SegParams = SegParams(), keep_debug=False, paper_rect_mm=None,
-                  reference="charuco", focal_px=None) -> MeasureResult:
+                  reference="charuco", focal_px=None, card=None, known_quality=None) -> MeasureResult:
     """`paper_rect_mm`: board-frame rectangle hidden from the crack search instead of the card's own
     paper (used for the printed test chart, whose board sits on a larger sheet).
     `reference`: "charuco" (printed card), "idcard" (any bank/loyalty card, see idcard.py) or "auto"
     (ChArUco if found, else a wallet card). A wallet card found but unusable gives "reference_rejected"
     with quality["retake_reason"]. `focal_px`: camera focal in pixels of this image if known (EXIF), used by
-    the wallet-card reference only."""
+    the wallet-card reference only.
+    `card`: the reference already found on this photo when it was first measured (service.StoredCard): no detection
+    runs ("measure first, blur after": the stored copy of a visit may have its bank card blurred since).
+    `known_quality`: quality fields measured then (blur on the card edges...), overriding the ones measured now."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
-    card = detect_card(gray) if reference != "idcard" else None
+    known = card is not None
+    if not known:
+        card = detect_card(gray) if reference != "idcard" else None
     ref = None
-    if card is None and reference in ("idcard", "auto"):
+    if card is None and not known and reference in ("idcard", "auto"):
         from .idcard import detect_idcard
         ch = detect_card(gray) if reference == "idcard" else None      # a printed sheet in the photo: hide it
         excl = [apply_h(ch.H_img_from_board, [(a, b), (c, b), (c, d), (a, d)])
@@ -980,6 +985,8 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
     q = estimate_quality(gray, card)
     if ref is not None:
         q.update(ref.quality_fields())
+    if known_quality:
+        q.update(known_quality)
     if card is None:
         res = MeasureResult("reference_rejected" if ref is not None and ref.rejected else "no_card", q)
         if keep_debug and ref is not None:

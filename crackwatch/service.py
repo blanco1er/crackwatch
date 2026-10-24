@@ -13,7 +13,8 @@ import numpy as np
 
 from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
-from .idcard import IdCardDetection, detect_idcard, redact, redact_polys, redact_reference
+from .card import KNOWN_CARDS
+from .idcard import ID1, ID1_H_MM, ID1_W_MM, IdCardDetection, detect_idcard, redact_polys
 from .measure import apply_h, measure_image
 from .stations import as_comparison, clean_stations, measure_at_stations
 
@@ -216,25 +217,109 @@ def add_outlines(res, shape) -> None:
             cr["outline_breaks"] = breaks
 
 
+# ---------------------------------------------------------------- measure first, blur after
+# What a later visit needs from this photo, captured BEFORE any redaction: the reference card's geometry and the
+# quality measured on it. The comparison then measures the stored (possibly blurred) photo with this geometry and
+# never looks for the card again.
+_Q_KEEP = ("blur_sigma_px", "card_px_per_mm", "tilt_deg_est", "card_corners", "card_reproj_rms_px", "card_contrast",
+           "reference", "reference_status", "scale_rel_unc")
+
+
+def card_geometry(res, shape) -> dict | None:
+    card = (getattr(res, "debug", None) or {}).get("card")
+    if card is None:
+        return None
+    g = {"v": 1, "reference": getattr(card, "reference", "charuco"), "spec": card.spec.name, "shape": [int(shape[0]), int(shape[1])],
+         "H_img_from_board": np.asarray(card.H_img_from_board, float).tolist(),
+         "img_pts": np.asarray(card.img_pts, float).tolist(), "obj_pts": np.asarray(card.obj_pts, float).tolist(),
+         "reproj_rms_px": float(card.reproj_rms_px), "n_corners": int(card.n_corners),
+         "quality": {k: res.quality[k] for k in _Q_KEEP if k in res.quality and isinstance(res.quality[k], (int, float, str))}}
+    if isinstance(card, IdCardDetection):
+        g.update({"H_img_from_card_face": np.asarray(card.H_img_from_card_face, float).tolist(),
+                  "px_per_mm": float(card.px_per_mm), "confidence": float(card.confidence)})
+    return g
+
+
+class StoredCard:
+    """The reference card of an earlier photo, rebuilt from card_geometry() (duck-types measure.CardDetection)."""
+
+    def __init__(self, g: dict, shape):
+        specs = {c.name: c for c in KNOWN_CARDS}
+        specs[ID1.name] = ID1
+        if g.get("spec") not in specs:
+            raise ValueError("unknown card")
+        sy, sx = shape[0] / float(g["shape"][0]), shape[1] / float(g["shape"][1])
+        if abs(sx - sy) > 0.01:
+            raise ValueError("photo aspect changed")
+        S = np.diag([sx, sy, 1.0])                         # the stored copy may have been resized
+        self.spec = specs[g["spec"]]
+        self.reference = g.get("reference", "charuco")
+        self.H_img_from_board = S @ np.asarray(g["H_img_from_board"], float)
+        self.img_pts = np.asarray(g["img_pts"], float) * [sx, sy]
+        self.obj_pts = np.asarray(g["obj_pts"], float)
+        self.reproj_rms_px = float(g.get("reproj_rms_px", 0.0)) * sx
+        self.n_corners = int(g.get("n_corners", len(self.img_pts)))
+        if "H_img_from_card_face" in g:
+            self.H_img_from_card_face = S @ np.asarray(g["H_img_from_card_face"], float)
+            self.px_per_mm = float(g.get("px_per_mm", 5.0)) * sx
+        if "confidence" in g:
+            self.confidence = float(g["confidence"])
+        self.quality = dict(g.get("quality") or {})
+
+
+def clean_geometry(g) -> dict | None:
+    """A card geometry sent back by the app: shape-checked numbers only, else None."""
+    try:
+        if not isinstance(g, dict) or g.get("v") != 1:
+            return None
+        H = np.asarray(g["H_img_from_board"], float)
+        P = np.asarray(g["img_pts"], float)
+        O = np.asarray(g["obj_pts"], float)
+        ok = H.shape == (3, 3) and P.ndim == 2 and P.shape[1] == 2 and O.shape == P.shape and 4 <= len(P) <= 200
+        ok &= bool(np.all(np.isfinite(H))) and len(g["shape"]) == 2
+        if "H_img_from_card_face" in g:
+            ok &= np.asarray(g["H_img_from_card_face"], float).shape == (3, 3)
+        q = {k: v for k, v in (g.get("quality") or {}).items() if k in _Q_KEEP and isinstance(v, (int, float, str))}
+        return dict(g, quality=q) if ok else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+CARD_EDGE_BAND_MM = 2.5     # outline band left sharp so a later visit can find the card again
+
+
+def redact_card_interior(bgr: np.ndarray, det: IdCardDetection, band_mm: float = CARD_EDGE_BAND_MM) -> np.ndarray:
+    """Pixelate + blur the card face INSIDE a 2.5 mm band along its edges (card frame, through the card-face
+    homography). The band keeps the straight edges and the rounded corners the detector needs, so the stored copy
+    of a visit can be measured again at the next one; on the owner's real photos (8 cards, 4.7-9.6 px/mm) nothing
+    readable is left in it (numbers, name, chip and logos are further in)."""
+    b = band_mm
+    poly = apply_h(det.H_img_from_card_face, [(b, b), (ID1_W_MM - b, b), (ID1_W_MM - b, ID1_H_MM - b), (b, ID1_H_MM - b)])
+    return redact_polys(bgr, [poly], block_px=max(4, int(round(6.0 * det.px_per_mm))))
+
+
 def redact_cards(bgr: np.ndarray, res, focal_px=None) -> np.ndarray:
     """Every bank / ID-1 card in the photo is blurred before any image is returned or stored, WHATEVER reference
     measured the scale: when the printed ChArUco card is the reference, a wallet card lying next to it would
-    otherwise stay readable. The ID-1 detector runs for redaction only (the printed sheet is hidden from it)."""
-    out = redact_reference(bgr, res)
+    otherwise stay readable. The ID-1 detector runs for redaction only (the printed sheet is hidden from it).
+    A detected card is blurred inside its edge band (redact_card_interior); a card found but rejected (no
+    trustworthy outline) is blurred entirely, margin included."""
     dbg = getattr(res, "debug", None) or {}
     card = dbg.get("card")
-    if isinstance(card, IdCardDetection) or dbg.get("redact_polys_img"):
-        return out                                  # the wallet card itself was the reference: already redacted
+    if isinstance(card, IdCardDetection):
+        return redact_card_interior(bgr, card)      # the wallet card itself was the reference
+    if dbg.get("redact_polys_img"):
+        return redact_polys(bgr, dbg["redact_polys_img"])
     excl = None
     if card is not None:
         x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
         excl = [apply_h(card.H_img_from_board, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)])]
     det, rep = detect_idcard(bgr, focal_px=focal_px, exclude_polys=excl)
     if det is not None:
-        return redact(out, det)
+        return redact_card_interior(bgr, det)
     if rep is not None and rep.redact_polys_img:
-        return redact_polys(out, rep.redact_polys_img)
-    return out
+        return redact_polys(bgr, rep.redact_polys_img)
+    return bgr
 
 
 def card_outline_px(res, shape):
@@ -285,7 +370,8 @@ def overlay_size(shape):
 
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
             inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto",
-            focal_35mm: float | None = None, previous_stations: list | None = None) -> dict:
+            focal_35mm: float | None = None, previous_stations: list | None = None,
+            previous_focal_35mm: float | None = None, previous_card: dict | None = None) -> dict:
     """Run one inspection. `retakes` = photos already re-requested in this visit (client-held).
     `previous_stations`: the tracked crack's stations from its last visit (kept by the client, since uploaded
     photos are deleted after a day); the new photo is measured at exactly those points.
@@ -295,6 +381,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     f_px = focal_px_from_35mm(focal_35mm, current.shape)
     res = measure_image(current, keep_debug=True, reference=reference, focal_px=f_px)
     add_outlines(res, current.shape)
+    geometry = card_geometry(res, current.shape)     # measured on the original photo, before any blur
     raw = current
     current = redact_cards(current, res, f_px)     # wallet card numbers never leave in a returned image
     wallet_seen = current is not raw               # a wallet card was found (used or rejected): redacted copy differs
@@ -332,13 +419,26 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
 
     def do_compare(args, st):
         t1 = time.time()
-        prev = measure_image(previous, keep_debug=True, reference=reference)
+        f_prev = focal_px_from_35mm(previous_focal_35mm, previous.shape)
+        stored = None
+        if previous_card:
+            try:
+                stored = StoredCard(previous_card, previous.shape)
+            except (ValueError, KeyError, TypeError):
+                stored = None
+        if stored is not None:   # measure first, blur after: the earlier photo is measured with ITS card, never re-detected
+            prev = measure_image(previous, keep_debug=True, reference=reference, focal_px=f_prev, card=stored,
+                                 known_quality=stored.quality)
+        else:
+            prev = measure_image(previous, keep_debug=True, reference=reference, focal_px=f_prev)
         st.comparison = compare(prev, res)
         timings["compare_ms"] = round(1000 * (time.time() - t1))
         out["comparison"] = _round({k: v for k, v in st.comparison.items() if k != "T_board1_from_board2"})
         out["previous_measurement"] = public_measurement(prev)
         if st.comparison.get("status") == "ok":
-            out["before_after"] = render_before_after(redact_cards(previous, prev), prev, current, res,
+            # the stored earlier photo was redacted when it was taken; with its stored geometry nothing is detected again
+            prev_img = previous if stored is not None else redact_cards(previous, prev, f_prev)
+            out["before_after"] = render_before_after(prev_img, prev, current, res,
                                                       st.comparison["T_board1_from_board2"])
         return obs
 
@@ -365,6 +465,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         # the stored upload must not keep the card's numbers either: the API overwrites it with this copy
         ok, buf = cv2.imencode(".jpg", current, [cv2.IMWRITE_JPEG_QUALITY, 92])
         out["_redacted_jpeg"] = buf.tobytes() if ok else b""
+    out["card_geometry"] = geometry
     out.update({"measurement": public_measurement(res), "trace": _round(trace),
                 "overlay_jpeg_b64": base64.b64encode(render_overlay(current, res, focus)).decode(),
                 "photo_jpeg_b64": base64.b64encode(render_overlay(current, res, marks=False)).decode() if res.cracks else None,

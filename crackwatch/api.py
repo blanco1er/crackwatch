@@ -69,7 +69,9 @@ OPENCV_JS = ("/vendor/opencv-4.12.0.js", "vendor/opencv-4.12.0.js.gz")
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "connect-src 'self' https://*.amazonaws.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 # The camera worker runs OpenCV.js (WebAssembly + Emscripten embind, which needs eval): allowed in the worker only.
-WORKER_CSP = "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self' data:; base-uri 'none'"
+# It fetches OpenCV.js from jsDelivr (else from here), checks its SHA-256, and runs it from a Blob URL.
+WORKER_CSP = ("default-src 'self'; script-src 'self' blob: 'unsafe-eval' 'wasm-unsafe-eval'; "
+              "connect-src 'self' data: https://cdn.jsdelivr.net; base-uri 'none'")
 
 
 class Response:
@@ -209,7 +211,7 @@ class App:
 
     def _inspect(self, data, h, ip):
         from .exif import focal_35mm as exif_focal_35mm
-        from .service import decode_image, inspect
+        from .service import clean_geometry, decode_image, inspect
         vid = visits.visitor_id(ip, h.get("user-agent", ""))
         if not self._count("inspections", LIMITS["inspections_per_day"]):
             return err("daily_limit", 429, "The public demo reached its daily limit. Please try again tomorrow.")
@@ -218,10 +220,20 @@ class App:
         try:
             cur_bytes, cur_src = self._load(data.get("image"))
             prev = None
+            prev_focal = None
+            prev_card = None
             if data.get("previous"):
                 try:
                     pbytes, _ = self._load(data["previous"])
                     prev = decode_image(pbytes)
+                    # the focal of the earlier visit: kept with its upload (the stored copy may be a re-encoded,
+                    # redacted JPEG without EXIF), else sent back by the app, else read from the file
+                    pk = (data["previous"] or {}).get("key") if isinstance(data["previous"], dict) else None
+                    meta = self.store.get(f"UPLOAD#{pk}", "META") if pk else None
+                    prev_focal = (meta or {}).get("focal_35mm") or data.get("previous_focal_35mm") or exif_focal_35mm(pbytes)
+                    # the earlier photo's card geometry, saved when it was measured (before any blur)
+                    stored_geo = (meta or {}).get("card_geometry")
+                    prev_card = clean_geometry(json.loads(stored_geo)) if stored_geo else clean_geometry(data.get("previous_card"))
                 except Exception:
                     if not data.get("previous_stations"):
                         raise                  # uploads expire after a day: the stations still allow a comparison
@@ -232,10 +244,18 @@ class App:
             return err("image_unavailable", 400, type(e).__name__)
         planner = self.planner_factory(self.llm_allowed) if self.planner_factory else None
         ref = data.get("reference") if data.get("reference") in ("auto", "charuco", "idcard") else "auto"
+        focal = data.get("focal_35mm") or exif_focal_35mm(cur_bytes)
         out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner, reference=ref,
-                      focal_35mm=data.get("focal_35mm") or exif_focal_35mm(cur_bytes),
-                      previous_stations=data.get("previous_stations"))
+                      focal_35mm=focal, previous_stations=data.get("previous_stations"),
+                      previous_focal_35mm=prev_focal, previous_card=prev_card)
         out["source"] = cur_src
+        out["focal_35mm"] = float(focal) if focal else None
+        if cur_src == "upload":
+            # remembered for a later comparison with this photo: its focal (the stored copy may lose the EXIF) and
+            # its card geometry, measured before the bank card was blurred
+            self.store.put(f"UPLOAD#{data['image']['key']}", "META",
+                           {"focal_35mm": float(focal) if focal else None,
+                            "card_geometry": json.dumps(out.get("card_geometry")) if out.get("card_geometry") else None}, ttl_days=1)
         redacted = out.pop("_redacted_jpeg", None)
         if redacted is not None and cur_src == "upload":
             # wallet-card photo: replace the raw upload by the redacted copy (card numbers never kept), or delete it
