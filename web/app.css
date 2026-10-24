@@ -29,6 +29,8 @@
 }
 
 html, body { background: var(--canvas); }
+/* An app never pans sideways: clip (not hidden, which would break the sticky top bar) any horizontal overflow. */
+html, body { overflow-x: clip; overscroll-behavior-x: none; }
 body { margin: 0; color: var(--ink); font: 400 17px/1.45 var(--font-sans); -webkit-font-smoothing: antialiased; touch-action: manipulation; }
 body, button, a, img { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select { -webkit-user-select: text; user-select: text; font-size: max(17px, 1em); }
@@ -45,7 +47,7 @@ code { font-size: 0.9em; }
   position: sticky; top: 0; z-index: 30; background: var(--canvas);
   box-shadow: 0 0 0 100vmax var(--canvas); clip-path: inset(0 -100vmax -14px); }
 /* Soft fade under the bar so content slides under it instead of being cut by a hard edge. */
-.topbar::after { content: ""; position: absolute; left: -100vmax; right: -100vmax; top: 100%; height: 14px; pointer-events: none;
+.topbar::after { content: ""; position: absolute; left: calc(50% - 50vw); width: 100vw; top: 100%; height: 14px; pointer-events: none;
   background: linear-gradient(var(--canvas), transparent); }
 .round { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: none; cursor: pointer;
   border: 1px solid var(--line); background: var(--canvas); color: var(--ink); transition: transform 160ms var(--ease-bouncy, ease); }
