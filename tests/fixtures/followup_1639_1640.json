@@ -1,0 +1,165 @@
+{
+ "source": "real follow-up IMG_1639 -> IMG_1640 (owner's photos, 24 Oct 2026), measured by the service; numbers only",
+ "observation_v2": {
+  "status": "ok",
+  "quality": {
+   "blur_sigma_px": 0.749,
+   "saturated_frac": 0.012,
+   "tilt_deg_est": 13.509,
+   "card_px_per_mm": 7.155,
+   "card_corners": 24,
+   "card_reproj_rms_px": 0.396
+  },
+  "cracks": [
+   {
+    "id": 0,
+    "length_mm": 554.3,
+    "width_mm": {
+     "median": 4.966,
+     "mean": 4.766,
+     "p90": 5.857,
+     "max": 5.946
+    },
+    "max_location_board_mm": [
+     -37.0,
+     -33.5
+    ],
+    "uncertainty_mm": 0.087,
+    "confidence": 0.94,
+    "resolved_fraction": 1.0,
+    "depth_source": "resolved",
+    "lower_bound_median_mm": 4.597,
+    "native_px_per_mm": 6.72,
+    "blur_sigma_mm": 0.134,
+    "min_measurable_mm": 0.223,
+    "bbox_board_mm": [
+     -61.5,
+     -115.0,
+     -28.7,
+     153.1
+    ],
+    "focus_region_board_mm": [
+     -61.5,
+     -115.0,
+     -28.7,
+     153.1
+    ],
+    "view_angle_across_deg": 11.0,
+    "score": 532.88,
+    "center_dist": 0.008
+   },
+   {
+    "id": 2,
+    "length_mm": 93.3,
+    "width_mm": {
+     "median": 4.578,
+     "mean": 4.471,
+     "p90": 5.011,
+     "max": 4.944
+    },
+    "max_location_board_mm": [
+     -73.0,
+     174.7
+    ],
+    "uncertainty_mm": 0.069,
+    "confidence": 0.94,
+    "resolved_fraction": 1.0,
+    "depth_source": "resolved",
+    "lower_bound_median_mm": 4.249,
+    "native_px_per_mm": 7.33,
+    "blur_sigma_mm": 0.13,
+    "min_measurable_mm": 0.205,
+    "bbox_board_mm": [
+     -87.8,
+     155.0,
+     -62.3,
+     233.0
+    ],
+    "focus_region_board_mm": [
+     -87.8,
+     155.0,
+     -62.3,
+     233.0
+    ],
+    "view_angle_across_deg": 10.6,
+    "score": 72.29,
+    "center_dist": 0.244
+   },
+   {
+    "id": 1,
+    "length_mm": 9.1,
+    "width_mm": {
+     "median": 0.671,
+     "mean": 0.674,
+     "p90": 0.915,
+     "max": 0.874
+    },
+    "max_location_board_mm": [
+     102.7,
+     -103.1
+    ],
+    "uncertainty_mm": 0.073,
+    "confidence": 0.92,
+    "resolved_fraction": 0.95,
+    "depth_source": "resolved",
+    "lower_bound_median_mm": 0.534,
+    "native_px_per_mm": 6.81,
+    "blur_sigma_mm": 0.137,
+    "min_measurable_mm": 0.22,
+    "bbox_board_mm": [
+     102.5,
+     -105.7,
+     109.3,
+     -103.0
+    ],
+    "focus_region_board_mm": [
+     102.5,
+     -105.7,
+     109.3,
+     -103.0
+    ],
+    "view_angle_across_deg": 17.0,
+    "score": 2.92,
+    "center_dist": 0.245
+   }
+  ]
+ },
+ "comparison": {
+  "status": "ok",
+  "registration": {
+   "kp1": 6000,
+   "kp2": 6000,
+   "matches": 1773,
+   "inliers": 1680,
+   "status": "ok",
+   "ecc": "ok",
+   "ecc_cc": 0.754,
+   "mode": "texture_homography",
+   "texture_motion_mm": 1.777
+  },
+  "matched_fraction_v2": 0.984,
+  "width_delta_mm": {
+   "median": -0.042,
+   "p90": 0.401,
+   "max_width_v1": 5.995,
+   "max_width_v2": 5.946,
+   "max_delta": -0.049
+  },
+  "new_length_mm": 0.2,
+  "delta_uncertainty_mm": 0.207,
+  "z_critical": 2.98,
+  "whole": {
+   "delta_mm": -0.054,
+   "u_mm": 0.207,
+   "u_stat_mm": 0.02,
+   "w1_mm": 4.878,
+   "z": -0.26,
+   "significant": false
+  },
+  "significant_widening": false,
+  "widening_mm": null,
+  "widening_location_board_mm": null,
+  "widening_scope": null,
+  "significant_growth": false
+ }
+}

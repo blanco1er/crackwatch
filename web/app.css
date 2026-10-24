@@ -360,3 +360,7 @@ textarea.field { min-height: 96px; resize: vertical; }
 .stations__v .muted, .stations__v small.muted { color: var(--ink-2); }
 .stations__v .is-act { color: var(--act-text); font-weight: 700; }
 .stations-box .fine { margin: 6px 0 0; }
+
+.cmp-line { display: flex; gap: 10px; align-items: center; margin: 10px 4px 0; font-size: 16px; color: var(--ink); }
+.cmp-line .verdict__dot { width: 10px; height: 10px; margin: 0; }
+.cmp-line.is-ok .verdict__dot { background: var(--ok); } .cmp-line.is-act .verdict__dot { background: var(--act); }

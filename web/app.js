@@ -225,8 +225,9 @@ function verdict(sh, c) {
   const a = sh.decision || {}; const cr = sh.cracks && sh.cracks[0]; const q = sh.quality || {};
   if (sh.error) return { tone: 'watch', title: t('vErrorTitle'), text: sh.error, kind: 'error' };
   if (a.name === 'request_retake' || a.name === 'request_closer_photo' || (!cr && sh.status !== 'ok')) {
-    const r = a.name === 'request_closer_photo' ? 'closer' : (a.args?.reason || (sh.status === 'no_card' ? 'card_not_found' : 'blur'));
-    return { tone: 'watch', kind: 'retake', title: t(`r_${r}`, { blur: num(q.blur_sigma_px, 1) }), text: t(`f_${r}`, { z: num(a.args?.zoom_factor || 1.5, 1) }) };
+    // the closer-photo title states the measured reason (too thin, depth unreadable, unreliable width, nothing visible)
+    const r = a.name === 'request_closer_photo' ? (['depth', 'confidence', 'far'].includes(a.args?.why) ? `closer_${a.args.why}` : 'closer') : (a.args?.reason || (sh.status === 'no_card' ? 'card_not_found' : 'blur'));
+    return { tone: 'watch', kind: 'retake', title: t(`r_${r}`, { blur: num(q.blur_sigma_px, 1) }), text: t(`f_${r.startsWith('closer') ? 'closer' : r}`, { z: num(a.args?.zoom_factor || 1.5, 1) }) };
   }
   if (!cr) return { tone: 'ok', kind: 'none', title: t('vNoneTitle'), text: t('vNoneText') };
   const cmp = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
@@ -592,6 +593,13 @@ function renderResult() {
   const B = [];
   if (cr) B.push(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }), stationList(sh, cr));
   B.push(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
+  // a comparison that was made is always reported, whatever the agent asks next
+  const cmpDone = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
+  if (cmpDone) {
+    const wid = cmpDone.significant_widening ? (cmpDone.widening_mm ?? cmpDone.width_delta_mm.median) : null;
+    B.push(h('p', { class: `cmp-line ${wid != null ? 'is-act' : 'is-ok'}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }),
+      h('span', null, wid != null ? t('cmpWidened', { d: Wt(wid, { sign: true }) }) : t('cmpStable'))));
+  }
   if (cr) {
     const cmp = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
     B.push(h('div', { class: 'facts' },

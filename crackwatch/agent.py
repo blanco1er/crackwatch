@@ -114,7 +114,7 @@ def decide_next_action(obs: dict, state: AgentState, policy: Policy = Policy()) 
     if crack is None:
         ppm = q.get("card_px_per_mm", 0)
         if ppm and ppm < 5 and can_retake:
-            return Action("request_closer_photo", {"region_board_mm": None, "zoom_factor": round(6.0 / ppm, 1)},
+            return Action("request_closer_photo", {"region_board_mm": None, "zoom_factor": round(6.0 / ppm, 1), "why": "far"},
                           f"no crack found at {ppm:.1f} px/mm; fine cracks may be invisible at this distance")
         return Action("schedule_next_visit", {"days": 90}, "no crack detected (visual check by a human recommended)")
 
@@ -132,8 +132,9 @@ def decide_next_action(obs: dict, state: AgentState, policy: Policy = Policy()) 
     if unresolved and can_retake:
         need_ppm = policy.min_px_across_crack / max(w_med, 0.05)
         zoom = max(1.5, min(4.0, need_ppm / max(crack["native_px_per_mm"], 0.1)))
+        why = "thin" if px_across < policy.min_px_across_crack else "depth" if crack["depth_source"] == "prior" else "confidence"
         return Action("request_closer_photo",
-                      {"region_board_mm": crack["focus_region_board_mm"], "zoom_factor": round(zoom, 1),
+                      {"region_board_mm": crack["focus_region_board_mm"], "zoom_factor": round(zoom, 1), "why": why,
                        "instruction": f"Move about {zoom:.1f}x closer to the highlighted part of the crack, card still visible."},
                       f"median width {w_med:.2f} mm spans only {px_across:.1f} px (confidence {crack['confidence']}, depth {crack['depth_source']})")
 
@@ -347,7 +348,9 @@ class NovaConversePlanner:
             act = Action(calls[0]["name"], dict(calls[0].get("input") or {}), text[:300] or "LLM choice",
                          planner=self.model, meta=meta)
             act = validate_action(act, rule)
-            act.meta = dict(meta, agrees_with_rules=act.name == rule.name)
+            overrode = act is rule                     # the model's choice was rejected: the rules decided
+            act.meta = dict(meta, **(act.meta or {})) if overrode else dict(meta)
+            act.meta["agrees_with_rules"] = (not overrode) and act.name == rule.name
             return act
         except Exception as e:  # deterministic fallback, visible in the trace
             rule.planner = f"rules (LLM error: {type(e).__name__})"
@@ -355,17 +358,30 @@ class NovaConversePlanner:
             return rule
 
 
+PRECONDITION = {   # an action the model may choose only when the measured condition behind it holds
+    "request_retake": "the photo is not usable (card, glare, blur, angle)",
+    "request_closer_photo": "the crack is not resolved at this distance (too few pixels across, assumed depth or "
+                            "low confidence) or no crack was found on a far photo",
+    "compare_with_previous": "a previous visit exists and has not been compared yet",
+}
+
+
 def validate_action(act: Action, rule: Action) -> Action:
-    """Guard-rails on LLM output: unknown tool -> rules; a ticket always needs approval;
-    a ticket the rules did not justify is downgraded to a human review request."""
+    """Guard-rails on LLM output: unknown tool -> rules; an action whose measured precondition does not hold ->
+    rules (the rule policy evaluates exactly those preconditions: the model may only pick such an action when the
+    rules pick it too); a pending comparison with the previous visit is never skipped; a ticket always needs
+    approval; a ticket the rules did not justify is downgraded to a human review request."""
+    def overridden(why):
+        rule.planner = f"rules (LLM proposed {act.name}: {why}; overridden)"
+        rule.meta = dict(act.meta or {}, llm_proposed=act.name, override_reason=why)
+        return rule
     if act.name not in ACTIONS:
         rule.planner += " (LLM proposed unknown tool)"
         return rule
-    if act.name == "compare_with_previous" and rule.name in ("request_retake", "request_closer_photo"):
-        # never compare on a measurement the policy considers unusable
-        rule.planner = f"rules (LLM proposed {act.name} on an unusable photo; overridden)"
-        rule.meta = act.meta
-        return rule
+    if act.name in PRECONDITION and act.name != rule.name:
+        return overridden(f"precondition not met ({PRECONDITION[act.name]})")
+    if rule.name == "compare_with_previous" and act.name != "compare_with_previous":
+        return overridden("the previous visit must be compared first")
     if act.name == "request_closer_photo" and rule.name == "request_closer_photo":
         act.args.setdefault("region_board_mm", rule.args.get("region_board_mm"))
         act.args.setdefault("zoom_factor", rule.args.get("zoom_factor"))

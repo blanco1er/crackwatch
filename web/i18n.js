@@ -45,7 +45,7 @@ export const T = {
     r_too_dark: 'The photo is too dark.', f_too_dark: 'Turn on a light or open the curtains.',
     r_glare: 'There is glare on the wall.', f_glare: 'Turn off the flash or step to the side.',
     r_oblique: 'The photo is taken at an angle.', f_oblique: 'Face the wall straight on.',
-    r_closer: 'The crack is too thin at this distance.', f_closer: ({ z }) => `Come about ${z}× closer, with the card still in the photo.`,
+    r_closer: 'The crack is too thin at this distance.', r_closer_depth: 'The crack’s depth cannot be read at this distance.', r_closer_confidence: 'This photo does not give a reliable width.', r_closer_far: 'No crack is visible at this distance.', cmpStable: 'Stable since the last photo: the change is within the measurement noise.', cmpWidened: ({ d }) => `Widened by ${d} since the last photo.`, f_closer: ({ z }) => `Come about ${z}× closer, with the card still in the photo.`,
     // 3 · result
     maxWidth: 'Maximum width', pickHint: 'Not this one? Tap the crack.', candAria: ({ n, v }) => `Crack ${n}, maximum ${v}`, legend: '0.2 mm → 5 mm and more',
     stTitle: 'Measurement points', stHint: 'The same points are measured again at every visit.', stHintCmp: 'Measured again at the same points as last time.',
@@ -153,7 +153,7 @@ export const T = {
     r_too_dark: 'La photo est trop sombre.', f_too_dark: 'Allumez une lumière ou ouvrez les rideaux.',
     r_glare: 'Il y a un reflet sur le mur.', f_glare: 'Coupez le flash ou décalez-vous.',
     r_oblique: 'La photo est prise de biais.', f_oblique: 'Placez-vous bien en face du mur.',
-    r_closer: 'La fissure est trop fine à cette distance.', f_closer: ({ z }) => `Rapprochez-vous d’environ ${z}×, avec la carte toujours dans la photo.`,
+    r_closer: 'La fissure est trop fine à cette distance.', r_closer_depth: 'La profondeur de la fissure ne se lit pas à cette distance.', r_closer_confidence: 'Cette photo ne donne pas une largeur fiable.', r_closer_far: 'Aucune fissure visible à cette distance.', cmpStable: 'Stable depuis la dernière photo : l’écart reste dans le bruit de mesure.', cmpWidened: ({ d }) => `Élargie de ${d} depuis la dernière photo.`, f_closer: ({ z }) => `Rapprochez-vous d’environ ${z}×, avec la carte toujours dans la photo.`,
     maxWidth: 'Largeur maximale', pickHint: 'Pas celle-ci ? Touchez la fissure.', candAria: ({ n, v }) => `Fissure ${n}, maximum ${v}`, legend: '0,2 mm → 5 mm et plus',
     stTitle: 'Points de mesure', stHint: 'Les mêmes points seront remesurés à chaque visite.', stHintCmp: 'Remesurés aux mêmes points que la dernière fois.',
     stOutside: 'hors de la photo', stNoCrack: 'pas de fissure mesurée ici', stNs: 'dans le bruit de mesure', stSig: 'élargie',
