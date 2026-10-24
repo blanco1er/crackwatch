@@ -15,6 +15,7 @@ from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
 from .idcard import redact_reference
 from .measure import apply_h, measure_image
+from .stations import as_comparison, clean_stations, measure_at_stations
 
 MAX_SIDE = 4032          # longer photo side kept for measurement (12 MP phone photos pass unchanged)
 OVERLAY_SIDE = 1400
@@ -65,9 +66,11 @@ def _width_color(t: float):
     return tuple(int(v) for v in c)
 
 
-def render_overlay(bgr: np.ndarray, res, focus_region_mm=None) -> bytes:
+def render_overlay(bgr: np.ndarray, res, focus_region_mm=None, marks=True) -> bytes:
     """Photo + what OpenCV found: card corners, crack skeleton coloured by width, the max location,
-    and (active perception) the region the agent wants re-photographed. JPEG bytes."""
+    and (active perception) the region the agent wants re-photographed. JPEG bytes.
+    marks=False: the same photo (same size, same darkening, card outline only) for the app, which draws the
+    candidates and the measurement stations itself as crisp vector graphics on top of it."""
     s = min(1.0, OVERLAY_SIDE / max(bgr.shape[:2]))
     out = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else bgr.copy()
     out = cv2.addWeighted(out, 0.82, np.full_like(out, 255), 0.0, -12)   # slightly darker to lift the marks
@@ -79,6 +82,9 @@ def render_overlay(bgr: np.ndarray, res, focus_region_mm=None) -> bytes:
         x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
         poly = apply_h(H, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) * s
         cv2.polylines(out, [np.round(poly).astype(np.int32)], True, (255, 200, 120), lw, cv2.LINE_AA)
+        if not marks:
+            ok, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            return buf.tobytes()
         for p in card.img_pts * s:
             cv2.circle(out, (int(p[0]), int(p[1])), lw + 1, (255, 170, 60), -1, cv2.LINE_AA)
         comps = dbg.get("comps") or []
@@ -204,8 +210,20 @@ def add_outlines(res, shape) -> None:
             wl += [round(float(v), 2) for v in ww[seg][order][::step]]
             o += n
         cr["outline_px"], cr["outline_w_mm"] = line, wl          # width at each outline point, for colouring
+        for st in cr.get("stations") or []:
+            st["overlay_px"] = [int(round(v)) for v in apply_h(card.H_img_from_board, [st["board_mm"]])[0] * s]
         if breaks:
             cr["outline_breaks"] = breaks
+
+
+def card_outline_px(res, shape):
+    """The reference card's sheet in overlay pixels (the app keeps station labels off it)."""
+    card = (getattr(res, "debug", None) or {}).get("card")
+    if card is None:
+        return None
+    s = min(1.0, OVERLAY_SIDE / max(shape[:2]))
+    x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
+    return np.round(apply_h(card.H_img_from_board, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) * s).astype(int).tolist()
 
 
 def _order_along(p):
@@ -246,8 +264,10 @@ def overlay_size(shape):
 
 def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes: int = 0, planner=None,
             inspection_id: str | None = None, log=lambda *_: None, reference: str = "auto",
-            focal_35mm: float | None = None) -> dict:
+            focal_35mm: float | None = None, previous_stations: list | None = None) -> dict:
     """Run one inspection. `retakes` = photos already re-requested in this visit (client-held).
+    `previous_stations`: the tracked crack's stations from its last visit (kept by the client, since uploaded
+    photos are deleted after a day); the new photo is measured at exactly those points.
     `reference`: "auto" (printed ChArUco card if present, else a wallet card), "charuco" or "idcard"."""
     inspection_id = inspection_id or uuid.uuid4().hex[:12]
     t0 = time.time()
@@ -262,6 +282,32 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     state = AgentState(inspection_id, previous_inspection_id="previous-visit" if previous is not None else None,
                        retakes=int(retakes))
     out = {"inspection_id": inspection_id, "comparison": None, "request": None, "ticket": None, "next_visit_days": None}
+    prev_st = clean_stations(previous_stations)
+    H_ov = None
+    if res.debug.get("card") is not None:
+        s_ov = min(1.0, OVERLAY_SIDE / max(current.shape[:2]))
+        H_ov = np.diag([s_ov, s_ov, 1.0]) @ res.debug["card"].H_img_from_board
+
+    def stations_cmp(cmpd):
+        if cmpd and cmpd.get("status") == "ok" and cmpd.get("T_board1_from_board2") is not None:
+            T, mode = cmpd["T_board1_from_board2"], cmpd["registration"]["mode"]
+        elif (res.card or {}).get("reference", "charuco") == "charuco":
+            T, mode = None, "card_frame_assumed"          # printed card left glued on the wall (precision mode)
+        else:
+            return {"status": "cannot_register",
+                    "reason": "a wallet card is not left on the wall and the previous photo is not available"}
+        sc = measure_at_stations(res, prev_st, T, mode)
+        for r in sc.get("stations", []):
+            if H_ov is not None and r.get("status") == "ok":
+                r["overlay_px"] = [int(round(v)) for v in apply_h(H_ov, [r["board_mm_now"]])[0]]
+        return sc
+
+    if prev_st and previous is None:
+        # follow-up without the previous image: the stations alone carry the comparison
+        out["stations_compare"] = _round(stations_cmp(None))
+        state.comparison = as_comparison(out["stations_compare"])
+        state.previous_inspection_id, state.compared = "previous-visit", True
+        out["comparison"] = _round(state.comparison)
 
     def do_compare(args, st):
         t1 = time.time()
@@ -283,6 +329,8 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     t2 = time.time()
     trace = run_agent(obs, state, tools, planner or RulePlanner(), log=log)
     timings["agent_ms"] = round(1000 * (time.time() - t2)) - timings.get("compare_ms", 0)
+    if prev_st and previous is not None:
+        out["stations_compare"] = _round(stations_cmp(state.comparison))
     last = trace[-1]["action"]
     focus = None
     if last["name"] in ("request_retake", "request_closer_photo"):
@@ -298,6 +346,8 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         out["_redacted_jpeg"] = buf.tobytes() if ok else b""
     out.update({"measurement": public_measurement(res), "trace": _round(trace),
                 "overlay_jpeg_b64": base64.b64encode(render_overlay(current, res, focus)).decode(),
+                "photo_jpeg_b64": base64.b64encode(render_overlay(current, res, marks=False)).decode() if res.cracks else None,
+                "card_outline_px": card_outline_px(res, current.shape),
                 "closeup": render_closeup(current, res) if last["name"] not in ("request_retake",) else None,
                 "overlay_size": overlay_size(current.shape),
                 "timings_ms": dict(timings, total_ms=round(1000 * (time.time() - t0))),

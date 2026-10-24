@@ -201,8 +201,12 @@ class App:
             cur_bytes, cur_src = self._load(data.get("image"))
             prev = None
             if data.get("previous"):
-                pbytes, _ = self._load(data["previous"])
-                prev = decode_image(pbytes)
+                try:
+                    pbytes, _ = self._load(data["previous"])
+                    prev = decode_image(pbytes)
+                except Exception:
+                    if not data.get("previous_stations"):
+                        raise                  # uploads expire after a day: the stations still allow a comparison
             cur = decode_image(cur_bytes)
         except ValueError as e:
             return err(str(e), 400)
@@ -211,7 +215,7 @@ class App:
         planner = self.planner_factory(self.llm_allowed) if self.planner_factory else None
         ref = data.get("reference") if data.get("reference") in ("auto", "charuco", "idcard") else "auto"
         out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner, reference=ref,
-                      focal_35mm=data.get("focal_35mm"))
+                      focal_35mm=data.get("focal_35mm"), previous_stations=data.get("previous_stations"))
         out["source"] = cur_src
         redacted = out.pop("_redacted_jpeg", None)
         if redacted is not None and cur_src == "upload":

@@ -871,6 +871,9 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
     cam_c = camera_center_board(card.H_img_from_board, gray.shape)
     from .selection import select_cracks          # local import: select.py builds on this module
     comps, cracks = select_cracks(comps, rect, q, card, cam_c=cam_c)
+    from .stations import make_stations
+    for cr in cracks[:3]:                          # the app shows 3 candidates; each keeps its own stations
+        cr["stations"] = make_stations(comps[cr["id"]], cr)
     res = MeasureResult("ok" if cracks else "no_crack_found", q, card_info, cracks, seg["rejected"],
                         zone=zone_summary(rect, comps, cracks, card))
     if keep_debug:
