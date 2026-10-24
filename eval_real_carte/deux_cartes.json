@@ -122,24 +122,24 @@
    "status": "ok",
    "why": null,
    "detail": null,
-   "median": 4.381,
-   "max": 5.03,
-   "unc": 0.14
+   "median": 4.368,
+   "max": 5.047,
+   "unc": 0.139
   },
   "scale_err_crack_pct": [
-   1.74,
-   2.41
+   1.69,
+   2.33
   ],
   "scale_unc_crack_pct": 1.74,
-  "dist_card_crack_mm": 222.4,
+  "dist_card_crack_mm": 222.3,
   "card_vs_charuco_plane_mm": -5.5,
-  "plane_angle_deg": 2.9,
-  "ppm_at_card_pct": 2.03,
-  "matched_points": 538,
-  "matched_ratio_pct": 0.13,
+  "plane_angle_deg": 2.8,
+  "ppm_at_card_pct": 2.02,
+  "matched_points": 548,
+  "matched_ratio_pct": 0.07,
   "matched_within_2u": true,
-  "median_diff_mm": -0.491,
-  "median_ratio_pct": -10.1,
+  "median_diff_mm": -0.504,
+  "median_ratio_pct": -10.3,
   "within_2u": false,
   "folder": "beton-deux-cartes"
  },
@@ -230,24 +230,24 @@
    "status": "ok",
    "why": null,
    "detail": null,
-   "median": 6.72,
-   "max": 8.18,
-   "unc": 0.138
+   "median": 6.731,
+   "max": 8.137,
+   "unc": 0.131
   },
   "scale_err_crack_pct": [
-   0.12,
-   1.62
+   -0.47,
+   0.54
   ],
-  "scale_unc_crack_pct": 1.49,
-  "dist_card_crack_mm": 171.7,
-  "card_vs_charuco_plane_mm": -14.9,
-  "plane_angle_deg": 5.4,
-  "ppm_at_card_pct": 4.3,
-  "matched_points": 1840,
-  "matched_ratio_pct": -2.67,
-  "matched_within_2u": true,
-  "median_diff_mm": 2.902,
-  "median_ratio_pct": 76.0,
+  "scale_unc_crack_pct": 1.4,
+  "dist_card_crack_mm": 170.9,
+  "card_vs_charuco_plane_mm": -16.1,
+  "plane_angle_deg": 4.9,
+  "ppm_at_card_pct": 4.18,
+  "matched_points": 2045,
+  "matched_ratio_pct": -2.87,
+  "matched_within_2u": false,
+  "median_diff_mm": 2.913,
+  "median_ratio_pct": 76.3,
   "within_2u": false,
   "folder": "enduit-deux-cartes"
  },
@@ -374,23 +374,23 @@
    "status": "ok",
    "why": null,
    "detail": null,
-   "median": 6.502,
-   "max": 9.171,
-   "unc": 0.168
+   "median": 6.499,
+   "max": 9.334,
+   "unc": 0.169
   },
   "scale_err_crack_pct": [
    2.43,
-   6.41
+   6.43
   ],
-  "scale_unc_crack_pct": 2.89,
+  "scale_unc_crack_pct": 2.9,
   "dist_card_crack_mm": 172.6,
   "card_vs_charuco_plane_mm": -17.5,
   "plane_angle_deg": 8.3,
-  "ppm_at_card_pct": 5.64,
-  "matched_points": 2519,
-  "matched_ratio_pct": -2.62,
+  "ppm_at_card_pct": 5.65,
+  "matched_points": 2772,
+  "matched_ratio_pct": -2.04,
   "matched_within_2u": true,
-  "median_diff_mm": 1.148,
+  "median_diff_mm": 1.145,
   "median_ratio_pct": 21.4,
   "within_2u": false,
   "folder": "enduit-deux-cartes"
@@ -446,24 +446,24 @@
    "status": "ok",
    "why": null,
    "detail": null,
-   "median": 6.49,
-   "max": 8.742,
-   "unc": 0.166
+   "median": 6.445,
+   "max": 8.725,
+   "unc": 0.161
   },
   "scale_err_crack_pct": [
-   0.52,
-   2.64
+   0.53,
+   2.66
   ],
-  "scale_unc_crack_pct": 2.42,
+  "scale_unc_crack_pct": 2.41,
   "dist_card_crack_mm": 170.4,
   "card_vs_charuco_plane_mm": -18.1,
   "plane_angle_deg": 6.8,
   "ppm_at_card_pct": 3.91,
-  "matched_points": 2257,
-  "matched_ratio_pct": -1.86,
+  "matched_points": 2225,
+  "matched_ratio_pct": -1.68,
   "matched_within_2u": true,
-  "median_diff_mm": 2.167,
-  "median_ratio_pct": 50.1,
+  "median_diff_mm": 2.122,
+  "median_ratio_pct": 49.1,
   "within_2u": false,
   "folder": "enduit-deux-cartes"
  }

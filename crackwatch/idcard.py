@@ -30,6 +30,7 @@ short side, millimetres, right-handed with the image (x right / y down when faci
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field, replace
 
 import cv2
@@ -560,7 +561,9 @@ def _fit_line(P, tau0):
         c = float(n @ m)
         r = P @ n - c
         s = 1.4826 * float(np.median(np.abs(r[inl]))) + 1e-6
-        new = np.abs(r) <= max(0.6, 3.0 * s)
+        # a straight card edge does not scatter by more than ~2 px: wider points are a chip in the card, a
+        # texture grain or a finger outline, not the edge (capping keeps them from bending the line)
+        new = np.abs(r) <= max(0.6, min(3.0 * s, 2.0))
         if new.sum() < 6:
             break
         if np.array_equal(new, inl):
@@ -1016,10 +1019,10 @@ def _flag_noisy(stats):
         if st is None:
             continue
         others = [v for o, v in enumerate(sig) if o != s_ and v is not None]
-        st["noisy"] = bool(others) and st["robust_sigma_px"] > max(1.0, 2.5 * float(np.median(others)))
+        st["noisy"] = bool(others) and st["robust_sigma_px"] > max(1.5, 3.0 * float(np.median(others)))
 
 
-def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
+def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None, focal_px=None):
     """Edge sampling + robust line fits from a full-resolution candidate quad (3 iterations). A side whose
     edge is mostly hidden is rebuilt from the three others (see recover_side). -> dict or None."""
     Q = _canonical(Qfull, shape, p)
@@ -1045,6 +1048,17 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
         _flag_noisy(stats)
         lines = [(f_[0], f_[1]) if f_ is not None else None for f_ in fits]
         missing = [s for s in range(4) if lines[s] is None]
+        provisional = len(missing) > 1 and it < n_it - 1
+        bad_shape = False
+        if provisional:
+            # first passes use a wide search window on a rough outline (a 4032 px photo: +-48 px), where the card's
+            # print can out-vote a weak edge: keep the current outline's side and look again, narrower
+            for s in missing:
+                a_, b_ = Q[s], Q[(s + 1) % 4]
+                d_ = (b_ - a_) / max(float(np.linalg.norm(b_ - a_)), 1e-9)
+                n_ = np.array([-d_[1], d_[0]])
+                lines[s] = (n_, float(n_ @ a_))
+            missing = []
         recovered = None
         weak = sorted((s for s in range(4) if not _supported(stats[s], p)),
                       key=lambda s: 0.0 if stats[s] is None else stats[s]["coverage"])
@@ -1056,7 +1070,9 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
         last = it == n_it - 1               # early iterations run on a rough outline: judge only the last one
         if len(missing) > 1 or (len(weak) >= 3 and last):
             return fail(weak)
-        if missing:
+        if provisional:
+            todo = []
+        elif missing:
             # a side with no usable edge at all (hidden by a finger, glare): rebuilt from the other three,
             # nothing to check it against -> lower confidence, larger uncertainty (unknown focal)
             if len(weak) > 1 and any(stats[s] is not None and _low(stats[s]) for s in weak if s != missing[0]) and last:
@@ -1070,19 +1086,27 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
             if Qn is None:
                 return None
             e = _best_aspect(Qn, shape, p, strict=True)[0]
+            # not a flat ID-1 rectangle: wrong proportions, or corners off the best rectangle for the focal in use
+            cr_mm = pnp_homography(Qn, focal_px or f_def, shape)[1] / max(ppm, 1e-6)
+            bad_shape = e > p.aspect_tol or cr_mm > p.max_corner_rms_mm
             finger_side = [s for s in range(4) if stats[s]["skin_inl"] >= 0.5
                            and sum(stats[o]["skin_inl"] < 0.1 for o in range(4) if o != s) >= 2
                            and _skin_deep_inside(skin, offset, H, s) < 0.3]
+            # refuse only for lack of edge (a scattered but consistent edge is kept: its scatter enters the uncertainty;
+            # a wrong line is caught by the ID-1 proportions and the rounded-corner checks)
+            low = [s for s in weak if _low(stats[s])]
             noisy_or_low = [s for s in weak if stats[s].get("noisy") or _low(stats[s])]
-            if len(weak) == 2 and len(noisy_or_low) == 2 and last:
+            if len(low) >= 2 and last:
                 return fail(weak)
             # Rebuild candidates: a side running along skin (finger outline), else -- when the quad is not an ID-1
             # rectangle or one side is unreliable -- the weak sides. A rebuilt side is kept only if a real edge
             # supports it (a finger laid along the edge hides the true edge: then nothing supports any rebuild and
             # the photo is refused rather than measured with a wrong side).
-            todo = finger_side[:1] or (weak if e > p.aspect_tol else noisy_or_low[:1])
+            # a measured side is kept as long as the outline is a flat ID-1 rectangle (its weaker support enters the
+            # uncertainty); rebuilding it on a coverage threshold made the decision flip on JPEG noise
+            todo = finger_side[:1] or (noisy_or_low if bad_shape else [])
             need_support = 0.35
-            if e > p.aspect_tol and not todo:
+            if bad_shape and not todo:
                 if it == n_it - 1:
                     return {"fail": "card_inconsistent", "H": H, "sides": [], "coverage": [], "aspect_err": e,
                             "corners": [corner_support(img, offset, H, k, ppm, occ=skin) for k in range(4)]}
@@ -1113,9 +1137,17 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
                     if best_rec is None or sup > best_rec[0]:
                         best_rec = (sup, rec, target, m)
             if best_rec is None or best_rec[0] < need_support:
-                if missing:
+                if missing and it < n_it - 1:
+                    # early pass on a rough outline: keep its side and look again with a narrower window
+                    for s in missing:
+                        a_, b_ = Q[s], Q[(s + 1) % 4]
+                        d_ = (b_ - a_) / max(float(np.linalg.norm(b_ - a_)), 1e-9)
+                        n_ = np.array([-d_[1], d_[0]])
+                        lines[s] = (n_, float(n_ @ a_))
+                    missing = []
+                elif missing:
                     return fail(missing)
-                if e > p.aspect_tol and it == n_it - 1:
+                if bad_shape and it == n_it - 1:
                     return {"fail": "card_inconsistent", "H": H, "sides": [_image_side(H, s) for s in todo],
                             "coverage": [stats[s]["coverage"] for s in todo], "aspect_err": e,
                             "corners": [corner_support(img, offset, H, k, ppm, occ=skin) for k in range(4)]}
@@ -1139,11 +1171,13 @@ def _refine_candidate(img, offset, Qfull, shape, p: IdCardParams, skin=None):
         sel = [s for s in range(4) if fits[s] is not None]
         blur = _blur_from_profiles(np.concatenate([eps[s]["prof"] for s in sel]), eps[0]["t"],
                                    np.concatenate([eps[s]["k"] for s in sel]),
-                                   np.concatenate([_inl_full(eps[s]["good"], fits[s][2]) for s in sel]))
+                                   np.concatenate([_inl_full(eps[s]["good"], fits[s][2]) for s in sel])) if sel else None
         half = max(2.5, 3.0 * (blur or 1.5) + 1.5) if not flipped else max(6.0, 0.012 * max(shape[:2]))
-    corners = [corner_support(img, offset, H, k, ppm, occ=skin) for k in range(4)]
+    pk_all = [eps[s]["peak"][eps[s]["good"]] for s in range(4) if fits[s] is not None]
+    ref_pk = float(np.median(np.concatenate(pk_all))) if pk_all else None
+    corners = [corner_support(img, offset, H, k, ppm, occ=skin, ref_peak=ref_pk) for k in range(4)]
     return {"Q": Q, "H": H, "ppm": ppm, "fits": fits, "lines": lines, "stats": stats, "eps": eps, "recovered": recovered,
-            "corners": corners}
+            "corners": corners, "_occ": skin}
 
 
 def _rebuild_plausible(Qr, rec, m, stats, ppm, max_hidden_mm=30.0):
@@ -1184,7 +1218,7 @@ _CORNER_CENTRES = [(ID1_CORNER_R_MM, ID1_CORNER_R_MM, 180), (ID1_W_MM - ID1_CORN
                    (ID1_W_MM - ID1_CORNER_R_MM, ID1_H_MM - ID1_CORNER_R_MM, 0), (ID1_CORNER_R_MM, ID1_H_MM - ID1_CORNER_R_MM, 90)]
 
 
-def corner_support(img, offset, H, k, ppm, n=11, occ=None, tol_mm=0.4):
+def corner_support(img, offset, H, k, ppm, n=11, occ=None, tol_mm=0.4, ref_peak=None):
     """Fraction of the rounded corner k (r = 3.18 mm arc between the two straight sides) where a colour edge is
     found on the arc (within max(0.6 mm, 2 px)). A real card corner is there; the 'corner' of a quad closed by
     a finger, a joint or a printed line is not. Corner k is board corner k (0 = (0,0), clockwise)."""
@@ -1213,11 +1247,54 @@ def corner_support(img, offset, H, k, ppm, n=11, occ=None, tol_mm=0.4):
     left = E[np.arange(n), np.clip(kpk - 1, 0, len(rr) - 1)]
     right = E[np.arange(n), np.clip(kpk + 1, 0, len(rr) - 1)]
     ok = (pk >= left) & (pk >= right) & (pk >= 0.3 * E.max(axis=1)) & (pk >= 1.5 * np.median(E, axis=1)) & (pk >= 1.0)
+    if ref_peak:                                   # as strong as the card's own edges, not a texture ripple
+        ok &= pk >= 0.2 * ref_peak
     if valid is not None:
         ok = ok[valid]
         if len(ok) < 3:
             return float("nan")                    # corner hidden (occluder): no evidence either way
     return float(np.mean(ok))
+
+
+def side_inside_check(img, offset, H, occ=None):
+    """For each side: does the band just inside it (1.5-4 mm) look like the card or like the wall outside?
+    A side that is not the card's boundary (a crack lip, a joint or a texture line a few mm beyond the card)
+    has wall on both sides. Returns per side d(inside band, outside band) / d(wall, card) in Lab: ~1 for a true card
+    side, ~0 for a side lying a few mm off the card on the wall."""
+    lab = cv2.cvtColor(np.clip(img, 0, 255).astype(np.uint8), cv2.COLOR_BGR2Lab).astype(np.float32)
+    g = np.mgrid[8:78:24j, 8:46:12j].reshape(2, -1).T              # card interior samples (mm)
+    q = _apply_h(H, g) - offset
+    inner = cv2.remap(lab, q[:, 0:1].astype(np.float32), q[:, 1:2].astype(np.float32), cv2.INTER_LINEAR,
+                      borderMode=cv2.BORDER_REPLICATE).reshape(-1, 3)
+    card_med = np.median(inner, axis=0)
+    bands = []
+    for s_ in range(4):
+        a, b = [((0, 0), (ID1_W_MM, 0)), ((ID1_W_MM, 0), (ID1_W_MM, ID1_H_MM)), ((ID1_W_MM, ID1_H_MM), (0, ID1_H_MM)),
+                ((0, ID1_H_MM), (0, 0))][s_]
+        a, b = np.array(a, float), np.array(b, float)
+        nb = np.array(_SIDE_OUT[s_], float)
+        u = np.linspace(0.15, 0.85, 30)[:, None]
+        P = a + (b - a) * u
+        vals = {}
+        for name, ds in (("in", (-0.8, -1.5, -2.5)), ("out", (1.5, 2.5, 4.0))):
+            pts = np.vstack([P + nb * d for d in ds])
+            qq = _apply_h(H, pts) - offset
+            v = cv2.remap(lab, qq[:, 0:1].astype(np.float32), qq[:, 1:2].astype(np.float32), cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_REPLICATE).reshape(-1, 3)
+            if occ is not None:
+                o = cv2.remap(occ, qq[:, 0:1].astype(np.float32), qq[:, 1:2].astype(np.float32), cv2.INTER_NEAREST,
+                              borderMode=cv2.BORDER_CONSTANT, borderValue=0).ravel()
+                v = v[o < 0.5] if (o < 0.5).sum() >= 10 else v
+            vals[name] = np.median(v, axis=0)
+        bands.append(vals)
+    wall = np.median(np.array([v["out"] for v in bands]), axis=0)
+    d_wc = max(float(np.linalg.norm(wall - card_med)), 4.0)
+    # the band just inside should differ from the band just outside about as much as the card differs from the wall;
+    # a side lying on the wall has the same thing on both sides (score ~0). Card designs vary, so the inside band
+    # is not compared with the card's average colour.
+    # either test: inside like the outside right there, or inside like the wall in general (a side drawn along a
+    # crack lip has dark crack outside but plain wall inside)
+    return [min(float(np.linalg.norm(v["in"] - v["out"])), float(np.linalg.norm(v["in"] - wall))) / d_wc for v in bands]
 
 
 def _line_support(img, offset, pa, pb, ref_peak, n=60, occ=None):
@@ -1374,11 +1451,12 @@ def _perturb_plane(H, f, shape, dz, ang, axis_dir):
 
 
 def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px: float | None = None,
-                  exclude_polys=None):
+                  exclude_polys=None, expected_ppm: float | None = None):
     """-> (IdCardDetection | None, IdCardReport). `image` BGR (or gray). `focal_px`: the camera focal in
     pixels of this image if known (EXIF FocalLengthIn35mmFilm / 43.27 x image diagonal), else estimated.
     `exclude_polys`: image polygons hidden from the search (e.g. a printed ChArUco sheet in the same photo:
-    its checkerboard offers dozens of card-shaped rectangles)."""
+    its checkerboard offers dozens of card-shaped rectangles). `expected_ppm`: px/mm of the wall known from another
+    reference (the printed card): a "card" whose own scale disagrees by more than x1.6 is not a card on that wall."""
     rep = IdCardReport()
     bgr = image if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
     if exclude_polys:
@@ -1416,7 +1494,7 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
             continue
         roi = bgr[y0:y1, x0:x1].astype(np.float32)
         out = _refine_candidate(cv2.GaussianBlur(roi, (0, 0), 0.6), (x0, y0), Q, bgr.shape, p,
-                                occluder_mask(bgr[y0:y1, x0:x1], Q - (x0, y0)))
+                                occluder_mask(bgr[y0:y1, x0:x1], Q - (x0, y0)), focal_px=focal_px)
         if out is None:
             continue
         if "fail" in out:
@@ -1431,7 +1509,7 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
         covs = [st["coverage"] if st is not None else 0.0 for st in out["stats"]]
         res = np.concatenate([out["stats"][s]["_res"] for s in range(4) if out["fits"][s] is not None])
         rms = float(np.sqrt(np.mean(res ** 2)))
-        score = float(np.mean(covs)) + 0.5 * min(covs) - 4.0 * e - 0.1 * rms
+        score = float(np.mean(covs)) + 0.5 * min(covs) - 10.0 * e - 0.1 * rms   # ID-1 proportions are known to 0.15 %
         if out["recovered"] is None and e > p.aspect_tol:
             score -= 1.0                                   # not an ID-1 rectangle as it stands
         # rounded corners where the card's corners should be: all of them, except one under a finger, and the two
@@ -1442,15 +1520,46 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
         # a corner hidden by the finger/hand mask has no value (nan) and is fine; a VISIBLE corner without a rounded
         # card corner is tolerated once and only if some arc evidence remains (>= 0.3): a quad closed by a finger
         # outline, a printed line or a joint has none
-        out["corner_fail"] = bad if (len(bad) > 1 or any(out["corners"][k] < 0.3 for k in bad) or (bad and m_ is not None)) else []
+        # ... or when both its sides are well supported (a fingertip on the corner the hand mask missed)
+        lone_ok = len(bad) == 1 and m_ is None and (out["corners"][bad[0]] >= 0.3 or all(
+            _supported(out["stats"][s_], p) for s_ in ((bad[0] - 1) % 4, bad[0])))
+        out["corner_fail"] = [] if (not bad or lone_ok) else bad
         cmean = float(np.nanmean(out["corners"])) if np.isfinite(out["corners"]).any() else 0.0
-        score += 0.5 * cmean - (2.0 if out["corner_fail"] else 0.0)
+        score += 1.5 * cmean - (2.0 if out["corner_fail"] else 0.0)   # rounded corners: the best evidence of a card
+        if m_ is not None:
+            score -= 0.4                 # a rebuilt side rests on fewer measurements: prefer a complete outline
+        # an outline that would be refused (cut by the frame, too oblique) is unlikely to be the card when another
+        # one is not
+        if np.any(out["Q"] < 3) or np.any(out["Q"][:, 0] > w - 4) or np.any(out["Q"][:, 1] > h - 4):
+            score -= 1.5
+        try:
+            Rs, _, _ = pose_from_homography(out["H"], focal_px or p.focal_35mm * _fu(bgr.shape), bgr.shape)
+            if math.degrees(math.acos(min(1.0, abs(Rs[2, 2])))) > p.max_tilt_deg:
+                score -= 1.5
+        except (np.linalg.LinAlgError, ValueError):
+            pass
+        # a side with wall on both sides is not the card's boundary (crack lip, joint, texture line beyond the card)
+        ins = side_inside_check(roi, (x0, y0), out["H"], out.get("_occ"))
+        out["inside"] = [round(v, 2) for v in ins]
+        # suspect only with weak rounded-corner evidence at BOTH ends: a card whose colour near an edge resembles the
+        # wall still shows its rounded corners
+        cw = [c if c == c else 0.0 for c in out["corners"]]
+        out["side_suspect"] = [s_ for s_ in range(4) if ins[s_] < 0.3 and cw[s_] < 0.75 and cw[(s_ + 1) % 4] < 0.75]
+        score -= 1.0 * len(out["side_suspect"])
+        if os.environ.get("CW_IDCARD_DEBUG"):
+            print("refined", np.round(out["Q"]).astype(int).tolist(), "score", round(score, 3), "e", round(e, 4), "corners", out["corners"], "rec", out["recovered"], "fail", out["corner_fail"], "inside", out["inside"], "suspect", out["side_suspect"])
         refined.append((score, out, e, asp, roi, (x0, y0), rms))
     # a printed rectangle inside the card can also have ID-1 proportions: keep the outer one
     keep = []
     for i, ci in enumerate(refined):
         inside_other = False
         for j, cj in enumerate(refined):
+            # ... unless the inner one has clearly more rounded-corner evidence: then the outer one is the card plus
+            # a crack lip, a joint or a texture line, and the inner one is the card
+            cs_i = np.nan_to_num(np.asarray(ci[1]["corners"], float), nan=0.5)
+            cs_j = np.nan_to_num(np.asarray(cj[1]["corners"], float), nan=0.5)
+            if cs_i.mean() > cs_j.mean() + 0.05:
+                continue
             if i != j and cj[0] > -0.5 and cv2.contourArea(cj[1]["Q"].astype(np.float32)) > 1.15 * cv2.contourArea(ci[1]["Q"].astype(np.float32)):
                 poly = cj[1]["Q"].astype(np.float32).reshape(-1, 1, 2)
                 if all(cv2.pointPolygonTest(poly, (float(x), float(y)), True) > -3.0 for x, y in ci[1]["Q"]):
@@ -1480,7 +1589,8 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
             if occl["sides"]:
                 rep.quality["card_occluded_edge"] = occl["sides"][0]
             H = occl["H"]
-            rep.redact_polys_img = [_apply_h(H, [(-3, -3), (ID1_W_MM + 3, -3), (ID1_W_MM + 3, ID1_H_MM + 3), (-3, ID1_H_MM + 3)]).tolist()]
+            # a refused candidate is never blurred: a wrong "card" (fence, joint) blurred on the crack would corrupt
+            # the stored photo used at the next visit
         else:
             rep.detail = "candidate rectangles had no measurable edges"
         return None, rep
@@ -1542,7 +1652,7 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
     A = np.array([[k, 0, (1 - k) * F[0]], [0, k, (1 - k) * F[1]], [0, 0, 1.0]])
     H_wall = H_face @ A
     H_wall /= H_wall[2, 2]
-    rep.redact_polys_img = [_apply_h(H_face, [(-3, -3), (ID1_W_MM + 3, -3), (ID1_W_MM + 3, ID1_H_MM + 3), (-3, ID1_H_MM + 3)]).tolist()]
+    card_poly = [_apply_h(H_face, [(-3, -3), (ID1_W_MM + 3, -3), (ID1_W_MM + 3, ID1_H_MM + 3), (-3, ID1_H_MM + 3)]).tolist()]
 
     # The 4 lines should be the image of a flat 85.60 x 53.98 rectangle: their corners' misfit to the PnP rectangle
     # (bent card, shadow or side wall on one edge, lens distortion) is added to the per-edge systematic budget.
@@ -1600,6 +1710,18 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
         rep.status = "card_not_flat"
         rep.detail = (f"the outline is not a flat ID-1 rectangle: corners {flat_rms / ppm:.2f} mm off "
                       f"(bent card, card lifted off the wall, or something straight along an edge)")
+    elif (np.nanmean(np.asarray(out["corners"], float)) < 0.75 if np.isfinite(out["corners"]).any() else True) \
+            and aspect_err > 0.01:
+        # weak rounded-corner evidence AND proportions off by > 1 % (ID-1 is +-0.15 %): the outline is probably the
+        # card plus something next to it (a crack lip, a joint); refusing is better than a scale off by several %
+        rep.status = "card_occluded"
+        rep.detail = (f"outline not reliably the card's (rounded corners weak, proportions off by {100 * aspect_err:.1f} %)")
+    elif out.get("side_suspect"):
+        s_ = out["side_suspect"][0]
+        rep.status = "card_occluded"
+        rep.detail = (f"the {_image_side(H_face, s_)} edge found is not the card's (wall on both sides of it): edge "
+                      "hidden, damaged or too faint")
+        rep.quality["card_occluded_edge"] = _image_side(H_face, s_)
     elif out["corner_fail"]:
         rep.status = "card_occluded"
         names = [_image_corner(H_face, k) for k in out["corner_fail"]]
@@ -1610,7 +1732,7 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
         rep.detail = (f"scale uncertainty {100 * det.scale_rel_unc:.1f} % > {100 * p.max_scale_rel_unc:.1f} %"
                       + (f"; {worst['image_side']} edge visible on {100 * worst['coverage']:.0f} % of its length" if worst else ""))
     elif any(st is not None and fits[s] is not None and st["sagitta_mm"] > p.max_sagitta_mm and st["sagitta_mm"] > 4 * st["sagitta_sigma_mm"]
-             for s, st in enumerate(stats)) or max(stats[s]["robust_sigma_px"] for s in sel) > p.max_edge_sigma_px:
+             for s, st in enumerate(stats)) or max(stats[s]["robust_sigma_px"] for s in sel) > max(p.max_edge_sigma_px, 0.5 * ppm):
         rep.status = "card_not_flat"
         rep.detail = (f"edge bow up to {max(stats[s]['sagitta_mm'] for s in sel):.2f} mm, edge scatter up to "
                       f"{max(stats[s]['robust_sigma_px'] for s in sel):.2f} px")
@@ -1637,9 +1759,20 @@ def detect_idcard(image: np.ndarray, p: IdCardParams = IdCardParams(), focal_px:
             rep.detail = f"{edges[recovered]['image_side']} edge hidden: rebuilt from the other three (lower confidence)"
     if worst is not None:
         rep.quality["card_occluded_edge"] = worst["image_side"]
+    if expected_ppm and not _scale_plausible(H_face, expected_ppm):
+        rep.status, rep.detail = "card_not_found", "card-shaped outline at a scale that does not match the wall's"
+    # redaction only for an accepted card (all checks passed): never for a refused candidate, which may not be a card
+    rep.redact_polys_img = card_poly if rep.status == "ok" else []
     if rep.status != "ok":
         return None, rep
     return det, rep
+
+
+def _scale_plausible(H, expected_ppm, factor=1.6):
+    if not expected_ppm:
+        return True
+    ppm = math.sqrt(abs(np.linalg.det(_jac(H, (ID1_W_MM / 2, ID1_H_MM / 2)))))
+    return expected_ppm / factor <= ppm <= expected_ppm * factor
 
 
 def _paint_out(img, polys):

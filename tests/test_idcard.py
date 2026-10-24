@@ -193,8 +193,9 @@ def test_bank_card_redacted_when_printed_card_is_the_reference():
     from crackwatch.service import redact_cards
     sc, det, rep = _ok_scene()
     img = sc["img_idcard"]
-    # stand-in for a ChArUco result: its sheet maps to a small patch in the image corner, away from the bank card
-    H = np.array([[0.5, 0, 5], [0, 0.5, 5], [0, 0, 1]], float)
+    # stand-in for a ChArUco result on the same wall (same px/mm as the bank card), its sheet outside the frame
+    ppm = det.px_per_mm
+    H = np.array([[ppm, 0, -5000.0], [0, ppm, -5000.0], [0, 0, 1]], float)
     res = SimpleNamespace(debug={"card": SimpleNamespace(spec=CARD_A6, H_img_from_board=H)})
     out = redact_cards(img, res)
     x0, y0, x1, y1 = sc["digits_box_card_mm"]

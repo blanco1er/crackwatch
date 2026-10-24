@@ -15,7 +15,7 @@ from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
 from .card import KNOWN_CARDS
 from .idcard import ID1, ID1_H_MM, ID1_W_MM, IdCardDetection, detect_idcard, redact_polys
-from .measure import apply_h, measure_image
+from .measure import local_scale, apply_h, measure_image
 from .stations import as_comparison, clean_stations, measure_at_stations
 
 MAX_SIDE = 4032          # longer photo side kept for measurement (12 MP phone photos pass unchanged)
@@ -314,7 +314,8 @@ def redact_cards(bgr: np.ndarray, res, focal_px=None) -> np.ndarray:
     if card is not None:
         x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
         excl = [apply_h(card.H_img_from_board, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)])]
-    det, rep = detect_idcard(bgr, focal_px=focal_px, exclude_polys=excl)
+    exp_ppm = local_scale(card.H_img_from_board, ((x0 + x1) / 2, (y0 + y1) / 2)) if card is not None else None
+    det, rep = detect_idcard(bgr, focal_px=focal_px, exclude_polys=excl, expected_ppm=exp_ppm)
     if det is not None:
         return redact_card_interior(bgr, det)
     if rep is not None and rep.redact_polys_img:
