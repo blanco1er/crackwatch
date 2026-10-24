@@ -561,20 +561,20 @@ function shownStations(sh, cr) {
 // Label layout, shared by the screen (SVG) and the PDF (canvas): pins on the crack, each label beside it on
 // alternating sides, pushed further out until it overlaps neither another label, a pin, the card nor the edge.
 function stationLayout(sh, cr) {
-  const [Wp, Hp] = sh.ovSize; const fs = Math.max(14, Math.max(Wp, Hp) * 0.033); const r = fs * 0.62;   // ~12 px on a 390 px phone (photo box 44vh high)
+  const [Wp, Hp] = sh.ovSize; const fs = Math.max(11, Math.max(Wp, Hp) * 0.024); const r = fs * 0.58;   // ~9 px on a 390 px phone: minimal labels
   const line = cr.outline_px || []; const card = sh.cardPx || null;
   const inPoly = (x, y, P) => { let o = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i]; const [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) o = !o; } return o; };
   const hitsCard = (b) => card && [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h], [b.x + b.w / 2, b.y + b.h / 2]].some(([x, y]) => inPoly(x, y, card));
   const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const pins = shownStations(sh, cr); const placed = []; const pinBoxes = pins.map((p) => ({ x: p.px[0] - r, y: p.px[1] - r, w: 2 * r, h: 2 * r }));
-  const D = Math.max(Wp, Hp) * 0.07;
+  const D = Math.max(Wp, Hp) * 0.055;
   return { fs, r, Wp, Hp, pins: pins.map((p, i) => {
     let k = 0, best = 1e18;
     line.forEach((q, j) => { const d = (q[0] - p.px[0]) ** 2 + (q[1] - p.px[1]) ** 2; if (d < best) { best = d; k = j; } });
     const a = line[Math.max(0, k - 2)] || p.px; const b = line[Math.min(line.length - 1, k + 2)] || p.px;
     let tx = b[0] - a[0], ty = b[1] - a[1]; const n0 = Math.hypot(tx, ty) || 1; tx /= n0; ty /= n0;
     const nx = -ty, ny = tx;
-    const text = `${p.id} · ${Wt(p.w)}`; const bw = fs * 0.56 * text.length + fs * 0.9; const bh = fs * 1.55;
+    const text = Wt(p.w); const bw = fs * 0.56 * text.length + fs * 0.2; const bh = fs * 1.5;
     // candidates: both sides, further out, then slid along the crack; the first free one wins, else the least crowded
     let pick = null, fallback = null, fewest = 1e9;
     const sides = i % 2 ? [-1, 1] : [1, -1];
@@ -631,10 +631,12 @@ function candidatesPhoto(c, sh, cands) {
   L_.pins.forEach((p) => {
     const g = s('g', { class: `st__pin ${p.isMax ? 'is-max' : ''} ${p.sig ? 'is-sig' : ''}`, role: 'img', 'aria-label': t('stAria', { id: p.id, v: Wt(p.w) }) });
     const bx = p.box; const ex = Math.min(Math.max(p.lx, bx.x), bx.x + bx.w); const ey = bx.y + bx.h / 2;
-    g.append(s('line', { x1: p.px[0], y1: p.px[1], x2: ex, y2: ey, class: 'st__lead', 'stroke-width': Math.max(2, L_.fs * 0.12) }));
-    g.append(s('circle', { cx: p.px[0], cy: p.px[1], r: L_.r, class: 'st__dot', 'stroke-width': Math.max(2, L_.fs * 0.13) }));
-    g.append(s('rect', { x: bx.x, y: bx.y, width: bx.w, height: bx.h, rx: bx.h / 2, class: 'st__tag' }));
-    const tx = s('text', { x: bx.x + bx.w / 2, y: bx.y + bx.h / 2, class: 'st__txt', 'font-size': L_.fs, 'text-anchor': 'middle', 'dominant-baseline': 'central' }); tx.textContent = p.text;
+    // minimal label: thin leader, the value in light type, underlined in its width colour (the widest point in brand orange)
+    g.append(s('line', { x1: p.px[0], y1: p.px[1], x2: ex, y2: ey, class: 'st__lead', 'stroke-width': Math.max(1.2, L_.fs * 0.08) }));
+    g.append(s('circle', { cx: p.px[0], cy: p.px[1], r: L_.r, class: 'st__dot', 'stroke-width': Math.max(1.2, L_.fs * 0.1) }));
+    const ux = bx.x + L_.fs * 0.1, uy = bx.y + bx.h - L_.fs * 0.12;
+    g.append(s('line', { x1: ux, y1: uy, x2: bx.x + bx.w - L_.fs * 0.1, y2: uy, class: 'st__under', stroke: p.isMax ? '#FF5A1F' : widthColor(p.w), 'stroke-width': L_.fs * (p.isMax ? 0.22 : 0.16) }));
+    const tx = s('text', { x: bx.x + bx.w / 2, y: bx.y + bx.h * 0.42, class: 'st__txt', 'font-size': L_.fs, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'stroke-width': L_.fs * 0.22 }); tx.textContent = p.text;
     const tl = s('text', { x: p.px[0], y: p.px[1], class: 'st__id', 'font-size': L_.fs * 0.78, 'text-anchor': 'middle', 'dominant-baseline': 'central' }); tl.textContent = p.id;
     g.append(tx, tl); gs.append(g);
   });
@@ -955,10 +957,13 @@ async function stationsImage(sh) {
   const L_ = stationLayout(sh, cr); const brand = '#FF5A1F';
   L_.pins.forEach((p) => {
     const b = p.box; const ex = Math.min(Math.max(p.lx, b.x), b.x + b.w); const ey = b.y + b.h / 2;
-    g.strokeStyle = 'rgba(255,255,255,0.92)'; g.lineWidth = Math.max(2, L_.fs * 0.12); g.beginPath(); g.moveTo(p.px[0], p.px[1]); g.lineTo(ex, ey); g.stroke();
-    g.fillStyle = p.isMax ? brand : 'rgba(12,12,14,0.8)'; g.beginPath(); g.roundRect(b.x, b.y, b.w, b.h, b.h / 2); g.fill();
-    g.fillStyle = '#fff'; g.font = `700 ${L_.fs}px Onest, -apple-system, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.text, b.x + b.w / 2, b.y + b.h / 2);
-    g.fillStyle = p.isMax ? brand : '#fff'; g.strokeStyle = p.isMax ? '#fff' : 'rgba(0,0,0,0.55)'; g.lineWidth = Math.max(2, L_.fs * 0.13);
+    g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = Math.max(1.2, L_.fs * 0.08); g.beginPath(); g.moveTo(p.px[0], p.px[1]); g.lineTo(ex, ey); g.stroke();
+    const uy = b.y + b.h - L_.fs * 0.12; g.lineCap = 'round';
+    g.strokeStyle = p.isMax ? brand : widthColor(p.w); g.lineWidth = L_.fs * (p.isMax ? 0.22 : 0.16); g.beginPath(); g.moveTo(b.x + L_.fs * 0.1, uy); g.lineTo(b.x + b.w - L_.fs * 0.1, uy); g.stroke();
+    g.font = `${p.isMax ? 700 : 600} ${L_.fs}px Onest, -apple-system, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = L_.fs * 0.22; g.lineJoin = 'round'; g.strokeText(p.text, b.x + b.w / 2, b.y + b.h * 0.42);
+    g.fillStyle = '#fff'; g.fillText(p.text, b.x + b.w / 2, b.y + b.h * 0.42);
+    g.fillStyle = p.isMax ? brand : '#fff'; g.strokeStyle = p.isMax ? '#fff' : 'rgba(0,0,0,0.55)'; g.lineWidth = Math.max(1.2, L_.fs * 0.1);
     g.beginPath(); g.arc(p.px[0], p.px[1], L_.r, 0, 2 * Math.PI); g.fill(); g.stroke();
     g.fillStyle = p.isMax ? '#fff' : '#111'; g.font = `800 ${L_.fs * 0.78}px Onest, -apple-system, sans-serif`; g.fillText(p.id, p.px[0], p.px[1]);
   });

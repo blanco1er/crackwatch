@@ -335,15 +335,16 @@ textarea.field { min-height: 96px; resize: vertical; }
 .cands--clean .cand:not(.is-on) .cand__line { stroke: rgba(255, 255, 255, 0.7); }
 .cands--clean .cand:not(.is-on) .cand__halo { stroke: rgba(0, 0, 0, 0.25); }
 .st { pointer-events: none; }
-.st__lead { stroke: rgba(255, 255, 255, 0.92); stroke-linecap: round; }
+.st__lead { stroke: rgba(255, 255, 255, 0.8); stroke-linecap: round; }
 .st__dot { fill: #fff; stroke: rgba(0, 0, 0, 0.55); }
 .st__id { fill: #111; font-family: var(--font-sans); font-weight: 800; }
-.st__tag { fill: rgba(12, 12, 14, 0.78); stroke: rgba(255, 255, 255, 0.35); stroke-width: 1.5; }
-.st__txt { fill: #fff; font-family: var(--font-sans); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.st__txt { fill: #fff; font-family: var(--font-sans); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  stroke: rgba(0, 0, 0, 0.45); paint-order: stroke; stroke-linejoin: round; }
+.st__under { stroke-linecap: round; }
+.st__pin.is-max .st__txt { font-weight: 700; }
 .st__pin.is-max .st__dot { fill: var(--brand); stroke: #fff; }
 .st__pin.is-max .st__id { fill: #fff; }
-.st__pin.is-max .st__tag { fill: var(--brand); stroke: none; }
-.st__pin.is-sig .st__tag { stroke: var(--act); stroke-width: 3; }
+.st__pin.is-sig .st__under { stroke: var(--act); }
 .stations-box { padding: 14px 16px 10px; margin-top: 12px; }
 .stations__title { margin: 0 0 6px; font: 600 15px/1.2 var(--font-sans); color: var(--ink-2); }
 .stations { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
