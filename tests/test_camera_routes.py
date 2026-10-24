@@ -27,6 +27,9 @@ def test_camera_files():
     assert "unsafe-eval" not in page                       # the page keeps the strict policy
     w = a.handle("GET", "/camera-worker.js", {}, b"", {}, "1").headers["content-security-policy"]
     assert "'wasm-unsafe-eval'" in w and "'unsafe-eval'" in w
+    assert "https://cdn.jsdelivr.net" in w and "blob:" in w   # OpenCV.js from the CDN, checked, run from a Blob URL
+    src = a.handle("GET", "/camera-worker.js", {}, b"", {}, "1").body.decode()
+    assert OPENCV_SHA256 in src                              # the worker checks the same file as the self-hosted copy
 
 
 def test_opencv_gzip_under_lambda_cap():

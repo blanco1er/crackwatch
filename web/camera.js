@@ -60,7 +60,7 @@ const CFG = {
   maxCornerShift: 0.025,   // card corner jump between analysed frames, fraction of the card size
   darkLuma: 42, darkExit: 50,
   holdMs: 1000,            // ring duration before the automatic photo
-  retakeCooldownMs: 2200, workerTimeoutMs: 35000, jpegQuality: 0.92,
+  retakeCooldownMs: 2200, workerTimeoutMs: 90000, jpegQuality: 0.92,   // 90 s: OpenCV.js is ~3 MB to download
 };
 const A6_BOARD = { w: 79, h: 109 }, ID1 = { w: 85.6, h: 53.98 };   // checkerboard + 2 mm, wallet card
 
@@ -72,7 +72,8 @@ const ICON = {
 };
 const svg = (name, cls = 'gc-icon') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
 
-let worker = null, workerState = 'idle', workerReadyAt = 0, workerLoadMs = null;
+let worker = null, workerState = 'idle', workerReadyAt = 0, workerLoadMs = null, workerPct = 0, workerSource = null;
+const progressListeners = new Set();
 const workerWaiters = [];
 function getWorker() {
   if (worker) return worker;
@@ -81,11 +82,18 @@ function getWorker() {
   const timer = setTimeout(() => { if (workerState === 'loading') { workerState = 'failed'; flushWaiters(); } }, CFG.workerTimeoutMs);
   worker.addEventListener('message', (ev) => {
     const m = ev.data;
+    if (m.type === 'progress') { workerPct = m.pct; if (m.source) workerSource = m.source; progressListeners.forEach((f) => f(m.pct)); }
     if (m.type === 'ready') { workerState = 'ready'; workerLoadMs = m.loadMs; workerReadyAt = performance.now(); clearTimeout(timer); flushWaiters(); }
     if (m.type === 'fail') { workerState = 'failed'; clearTimeout(timer); flushWaiters(); }
   });
   worker.addEventListener('error', () => { workerState = 'failed'; clearTimeout(timer); flushWaiters(); });
   return worker;
+}
+// Start loading the live guide in the background (called when the home screen is idle), so the camera is ready
+// when the user opens it. Skipped when the browser asks to save data.
+export function preloadGuide() {
+  try { if (navigator.connection && navigator.connection.saveData) return; } catch { /* ignore */ }
+  if (typeof Worker === 'function') getWorker();
 }
 function flushWaiters() { while (workerWaiters.length) workerWaiters.shift()(workerState); }
 const whenWorker = () => new Promise((res) => (workerState === 'ready' || workerState === 'failed' ? res(workerState) : workerWaiters.push(res)));
@@ -388,12 +396,15 @@ export function openGuidedCamera({ onPhoto = () => {}, onCancel = () => {}, lang
   async function restart() { analysing = false; stopStream(); await startCamera(); }
 
   async function startGuide() {
+    const showPct = (pct) => { if (!closed && workerState === 'loading') setStatus(pct > 0 ? `${L.preparing} ${pct} %` : L.preparing); };
     if (workerState !== 'ready') { setStatus(workerState === 'failed' ? '' : L.preparing); setHint('place', L.placeSub); }
     const w = getWorker();
+    showPct(workerPct); progressListeners.add(showPct);     // the shutter works meanwhile
     const st = await whenWorker();
+    progressListeners.delete(showPct);
     if (closed) return;
     if (st !== 'ready' || !w) { setStatus(''); setHint('guideOff'); root.dataset.guide = 'off'; levelEl.hidden = true; return; }
-    setStatus(''); root.dataset.guide = 'on'; stats.firstReadyAt = Math.round(performance.now()); stats.workerLoadMs = workerLoadMs;
+    setStatus(''); root.dataset.guide = 'on'; stats.firstReadyAt = Math.round(performance.now()); stats.workerLoadMs = workerLoadMs; stats.workerSource = workerSource;
     w.removeEventListener('message', onWorkerMessage); w.addEventListener('message', onWorkerMessage);
     analysing = true; inFlight = false; schedule();
   }
