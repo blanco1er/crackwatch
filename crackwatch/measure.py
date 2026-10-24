@@ -230,11 +230,14 @@ def _fill_masked(img, mask, sigma):
 
 def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2, 3.4)):
     """Multi-scale ridge strength for bright ridges in `rel` (= relative darkness).
-    Returns strength, best sigma (px) and unit normal (nx, ny) of the ridge."""
+    Returns strength, best sigma (px) and unit normal (nx, ny) of the ridge.
+    The response is (s^2) * max(0, -l1) * exp(...), so it can only beat the running best where l1 < 0: the
+    rest of the per-scale arithmetic is done on those pixels only (same float32 operations, same result)."""
     best = np.zeros_like(rel)
     best_s = np.zeros_like(rel)
     nx = np.zeros_like(rel)
     ny = np.zeros_like(rel)
+    bf, sf, xf, yf = best.ravel(), best_s.ravel(), nx.ravel(), ny.ravel()
     for s_mm in sigmas_mm:
         s = max(0.8, s_mm * R)
         g = cv2.GaussianBlur(rel, (0, 0), s)
@@ -244,46 +247,65 @@ def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2, 3.4)):
         half_tr = (dxx + dyy) / 2
         disc = np.sqrt(((dxx - dyy) / 2) ** 2 + dxy ** 2)
         l1 = half_tr - disc                   # most negative eigenvalue
-        l2 = half_tr + disc
-        rb = np.abs(l2) / (np.abs(l1) + 1e-9)
-        resp = (s * s) * np.maximum(0, -l1) * np.exp(-(rb ** 2) / (2 * 0.5 ** 2))
-        upd = resp > best
+        idx = np.flatnonzero(l1 < 0)
+        l1m = l1.ravel()[idx]
+        l2m = half_tr.ravel()[idx] + disc.ravel()[idx]
+        rb = np.abs(l2m) / (np.abs(l1m) + 1e-9)
+        resp = (s * s) * np.maximum(0, -l1m) * np.exp(-(rb ** 2) / (2 * 0.5 ** 2))
+        upd = resp > bf[idx]
+        iu = idx[upd]
+        l1u, dxxu, dyyu, dxyu = l1m[upd], dxx.ravel()[iu], dyy.ravel()[iu], dxy.ravel()[iu]
         # eigenvector of l1: (dxy, l1 - dxx) or (l1 - dyy, dxy)
-        ex = dxy
-        ey = l1 - dxx
+        ex = dxyu
+        ey = l1u - dxxu
         alt = np.abs(ex) + np.abs(ey) < 1e-9
-        ex = np.where(alt, l1 - dyy, ex)
-        ey = np.where(alt, dxy, ey)
+        ex = np.where(alt, l1u - dyyu, ex)
+        ey = np.where(alt, dxyu, ey)
         nrm = np.sqrt(ex * ex + ey * ey) + 1e-12
-        best = np.where(upd, resp, best)
-        best_s = np.where(upd, s, best_s)
-        nx = np.where(upd, ex / nrm, nx)
-        ny = np.where(upd, ey / nrm, ny)
+        bf[iu] = resp[upd]
+        sf[iu] = np.float32(s)
+        xf[iu] = ex / nrm
+        yf[iu] = ey / nrm
     return best, best_s, nx, ny
 
 
+def _zs_luts():
+    """Zhang-Suen removal tests as two 256-entry tables indexed by the 8-neighbour code
+    p2*1 + p3*2 + p4*4 + p5*8 + p6*16 + p7*32 + p8*64 + p9*128."""
+    luts = []
+    for step in (0, 1):
+        lut = np.zeros(256, bool)
+        for code in range(256):
+            p2, p3, p4, p5, p6, p7, p8, p9 = [(code >> k) & 1 for k in range(8)]
+            nb = [p2, p3, p4, p5, p6, p7, p8, p9]
+            B = sum(nb)
+            A = sum(1 for i in range(8) if nb[i] == 0 and nb[(i + 1) % 8] == 1)
+            c = (p2 * p4 * p6 == 0 and p4 * p6 * p8 == 0) if step == 0 else (p2 * p4 * p8 == 0 and p2 * p6 * p8 == 0)
+            lut[code] = 2 <= B <= 6 and A == 1 and c
+        luts.append(lut)
+    return luts
+
+
+_ZS = _zs_luts()
+# neighbour code by correlation: p2 (up) = 1, p3 (up-right) = 2, ... p9 (up-left) = 128
+_ZS_KERNEL = np.array([[128, 1, 2], [64, 0, 4], [32, 16, 8]], np.float32)
+
+
 def thin(mask: np.ndarray) -> np.ndarray:
-    """Zhang-Suen thinning (vectorised numpy). Uses cv2.ximgproc.thinning if present."""
+    """Zhang-Suen thinning (numpy, lookup tables; identical result to the textbook two-step rule).
+    Uses cv2.ximgproc.thinning if present."""
     if hasattr(cv2, "ximgproc"):
         return cv2.ximgproc.thinning(mask.astype(np.uint8) * 255) > 0
     img = np.pad(mask.astype(np.uint8), 1)
+    ys, xs = np.nonzero(img)                      # candidate pixels only shrink: track them as a list
     while True:
         changed = False
         for step in (0, 1):
-            P = img
-            p2, p3, p4 = P[:-2, 1:-1], P[:-2, 2:], P[1:-1, 2:]
-            p5, p6, p7 = P[2:, 2:], P[2:, 1:-1], P[2:, :-2]
-            p8, p9 = P[1:-1, :-2], P[:-2, :-2]
-            nb = [p2, p3, p4, p5, p6, p7, p8, p9]
-            B = sum(n.astype(np.int16) for n in nb)
-            A = sum(((nb[i] == 0) & (nb[(i + 1) % 8] == 1)).astype(np.int16) for i in range(8))
-            if step == 0:
-                c = (p2 * p4 * p6 == 0) & (p4 * p6 * p8 == 0)
-            else:
-                c = (p2 * p4 * p8 == 0) & (p2 * p6 * p8 == 0)
-            rm = (P[1:-1, 1:-1] == 1) & (B >= 2) & (B <= 6) & (A == 1) & c
+            code = cv2.filter2D(img, cv2.CV_16S, _ZS_KERNEL, borderType=cv2.BORDER_CONSTANT)
+            rm = _ZS[step][code[ys, xs]]
             if rm.any():
-                img[1:-1, 1:-1][rm] = 0
+                img[ys[rm], xs[rm]] = 0
+                ys, xs = ys[~rm], xs[~rm]
                 changed = True
         if not changed:
             break
@@ -544,6 +566,110 @@ def _half_max_edges(d, m, depth, t, step):
     return float(tl), float(tr)
 
 
+def _half_max_edges_batch(d, m, depth, t, step):
+    """_half_max_edges for many profiles at once (rows of `d`): same crossings, same float32 arithmetic.
+    Returns (tl, tr, valid); tl/tr are float64 like the scalar version's float() results."""
+    n, n_s = d.shape
+    rows = np.arange(n)
+    half = (depth / 2).astype(d.dtype)
+    below = d <= half[:, None]
+    cols = np.arange(n_s)[None, :]
+    last = np.where(below & (cols <= m[:, None]), cols, -1).max(1)          # last col <= m below half
+    first = np.where(below & (cols >= m[:, None]), cols, n_s).min(1)        # first col >= m below half
+    valid = (last >= 1) & (first <= n_s - 2)
+    l = np.clip(last, 0, n_s - 2)
+    r = np.clip(first, 1, n_s - 1)
+    tl = t[l] + (half - d[rows, l]) / (d[rows, l + 1] - d[rows, l] + np.float32(1e-12)) * np.float32(step)
+    tr = t[r - 1] + (d[rows, r - 1] - half) / (d[rows, r - 1] - d[rows, r] + np.float32(1e-12)) * np.float32(step)
+    return tl.astype(np.float64), tr.astype(np.float64), valid
+
+
+def _windows(t, lo, hi):
+    """Index windows [a, b] of the sorted sample positions t with lo <= t <= hi (row-wise), as a gather
+    index (n, W) and a validity mask; W = the widest window."""
+    a = np.searchsorted(t, lo, side="left")
+    b = np.searchsorted(t, hi, side="right") - 1
+    cnt = np.maximum(b - a + 1, 0)
+    W = max(1, int(cnt.max()) if len(cnt) else 1)
+    idx = a[:, None] + np.arange(W)[None, :]
+    valid = np.arange(W)[None, :] < cnt[:, None]
+    return np.clip(idx, 0, len(t) - 1), valid, cnt
+
+
+def _masked_median_rows(v, mask):
+    """np.median of v[i][mask[i]] for every row (float32 like np.median of a float32 slice); NaN if empty."""
+    x = np.where(mask, v, np.inf).astype(v.dtype)
+    x.sort(axis=1)
+    k = mask.sum(axis=1)
+    rows = np.arange(len(v))
+    lo = x[rows, np.clip((k - 1) // 2, 0, v.shape[1] - 1)]
+    hi = x[rows, np.clip(k // 2, 0, v.shape[1] - 1)]
+    med = np.where(k % 2 == 1, lo, ((lo + hi) / np.float32(2)).astype(v.dtype))
+    return np.where(k > 0, med, np.nan)
+
+
+def _profile_widths(drel, prof, imin, D, t, sig, c0, win, R, wp, chunk=2048):
+    """FWHM edges, flank-baseline refinement and darkness integral for all profiles of a crack, in row
+    blocks (same algorithm as the former per-point loop, vectorised). Updates drel/imin/D in place;
+    returns wf, A, ok."""
+    n, n_s = drel.shape
+    wf = np.full(n, np.nan)
+    A = np.full(n, np.nan)
+    ok = np.zeros(n, bool)
+    step = wp.step_px
+    F = wp.flank_mm * R
+    for a in range(0, n, chunk):
+        b = min(n, a + chunk)
+        d, p, mm, dd = drel[a:b], prof[a:b], imin[a:b].copy(), D[a:b].copy()
+        g_sig = sig[a:b]
+        tl, tr, act = _half_max_edges_batch(d, mm, dd, t, step)
+        act &= dd > 0.02
+        done = act.copy()                       # rows with a first-pass measurement
+        for _ in range(wp.flank_iters):
+            if not act.any():
+                break
+            g = _AREA_K * g_sig
+            il, vl, nl = _windows(t, tl - g - F, tl - g)       # flank bands, as index windows
+            ir, vr, nr = _windows(t, tr + g, tr + g + F)
+            act &= (nl >= 3) & (nr >= 3)
+            if not act.any():
+                break
+            ia = np.flatnonzero(act)
+            pa = p[ia]
+            ra = np.arange(len(ia))[:, None]
+            bl = _masked_median_rows(pa[ra, il[ia]], vl[ia]).astype(np.float64)
+            br = _masked_median_rows(pa[ra, ir[ia]], vr[ia]).astype(np.float64)
+            xl = (np.where(vl[ia], t[il[ia]], 0).sum(1, dtype=np.float32) / nl[ia]).astype(np.float64)
+            xr = (np.where(vr[ia], t[ir[ia]], 0).sum(1, dtype=np.float32) / nr[ia]).astype(np.float64)
+            den = np.maximum(xr - xl, 1e-6)
+            frac = np.clip((t[None, :] - xl[:, None].astype(np.float32)) / den[:, None].astype(np.float32), 0.0, 1.0)
+            base = bl[:, None].astype(np.float32) + (br - bl)[:, None].astype(np.float32) * frac
+            di = (base - pa) / np.maximum(base, np.float32(1e-3))
+            mi = c0 - win + np.argmax(di[:, c0 - win:c0 + win + 1], axis=1)
+            depth = di[np.arange(len(ia)), mi]
+            good = depth > 0.02
+            tl2, tr2, v2 = _half_max_edges_batch(di, mi, depth, t, step)
+            good &= v2
+            upd = ia[good]
+            d[upd] = di[good]
+            mm[upd] = mi[good]
+            dd[upd] = depth[good]
+            tl[upd], tr[upd] = tl2[good], tr2[good]
+            stop = np.zeros_like(act)
+            stop[ia[~good]] = True
+            act &= ~stop
+        imin[a:b], D[a:b] = mm, dd
+        w = tr - tl
+        c = 0.5 * (tl + tr)
+        L = w / 2 + _AREA_K * g_sig
+        sel = np.abs(t[None, :] - c[:, None].astype(np.float32)) <= L[:, None]
+        Ai = np.where(sel, d, 0).sum(1, dtype=np.float32) * step if len(d) else np.zeros(0, np.float32)
+        wf[a:b] = np.where(done, w, np.nan)
+        A[a:b] = np.where(done, Ai, np.nan)
+        ok[a:b] = done & (np.abs(c) <= np.maximum(1.0, 0.5 * w))
+    return wf, A, ok
+
+
 def _junction_mask(skel):
     k = np.ones((3, 3), np.float32)
     k[1, 1] = 0
@@ -586,7 +712,10 @@ def remap_rows(src, mx, my, interp, **kw):
 
 
 def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_board,
-                   wp: WidthParams = WidthParams()):
+                   wp: WidthParams = WidthParams(), zone_mm=None):
+    """`zone_mm` (x0, y0, x1, y1, board mm): skip ridges lying entirely outside it. measure_image passes the
+    monitoring zone (card sheet + ZONE_MARGIN_MM), the only area selection.py keeps; skipping them changes
+    no reported number and saves most of the time on a cluttered wall."""
     xs, fw_t, pk_t, aw_t = blur_tables()
     R = rect.R
     G = seg["G"]
@@ -599,6 +728,9 @@ def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_b
         xi, yi = pts[:, 0].astype(int), pts[:, 1].astype(int)
         nxv, nyv = seg["nx"][yi, xi], seg["ny"][yi, xi]
         pts_mm = rect.px_to_mm(pts)
+        if zone_mm is not None and not np.any((pts_mm[:, 0] > zone_mm[0]) & (pts_mm[:, 0] < zone_mm[2])
+                                              & (pts_mm[:, 1] > zone_mm[1]) & (pts_mm[:, 1] < zone_mm[3])):
+            continue
         s_mm = normal_sigma_mm(H_img_from_board, pts_mm, np.column_stack([nxv, nyv]))
         sig = np.sqrt((sigma_img_px * s_mm * R) ** 2 + wp.smooth_px ** 2 + wp.interp_sigma_px ** 2)
         w_est_px = np.median(seg["best_s"][yi, xi]) * 2.5
@@ -619,47 +751,7 @@ def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_b
         win = max(2, int(max(1.5, 0.6 * w_est_px) / wp.step_px))
         imin = c0 - win + np.argmax(drel[:, c0 - win:c0 + win + 1], axis=1)
         D = drel[np.arange(n), imin]
-        wf = np.full(n, np.nan)
-        A = np.full(n, np.nan)
-        ok = np.zeros(n, bool)
-        for i in range(n):
-            if D[i] <= 0.02:
-                continue
-            edges = _half_max_edges(drel[i], imin[i], D[i], t, wp.step_px)
-            if edges is None:
-                continue
-            tl, tr = edges
-            # Local background from the flanks: the first pass reads it at the far ends of the
-            # profile, which can fall on a neighbouring dark feature (another crack, a joint, the
-            # next bar of a test chart) and then narrows the measured width. Re-read it in a band of
-            # `flank_mm` on each side, just outside the blurred edges (guard = 2.5 sigma), and redo
-            # the half-maximum crossing with that baseline.
-            p_i = prof[i]
-            for _ in range(wp.flank_iters):
-                g = _AREA_K * sig[i]
-                fl = (t >= tl - g - wp.flank_mm * R) & (t <= tl - g)
-                fr = (t >= tr + g) & (t <= tr + g + wp.flank_mm * R)
-                if fl.sum() < 3 or fr.sum() < 3:
-                    break
-                bl_i, br_i = float(np.median(p_i[fl])), float(np.median(p_i[fr]))
-                xl, xr = float(t[fl].mean()), float(t[fr].mean())
-                base = bl_i + (br_i - bl_i) * np.clip((t - xl) / max(xr - xl, 1e-6), 0.0, 1.0)
-                d_i = (base - p_i) / np.maximum(base, 1e-3)
-                m_i = c0 - win + int(np.argmax(d_i[c0 - win:c0 + win + 1]))
-                if d_i[m_i] <= 0.02:
-                    break
-                e2 = _half_max_edges(d_i, m_i, d_i[m_i], t, wp.step_px)
-                if e2 is None:
-                    break
-                drel[i], imin[i], D[i] = d_i, m_i, d_i[m_i]
-                tl, tr = e2
-            d = drel[i]
-            wf[i] = tr - tl
-            c = 0.5 * (tl + tr)
-            L = wf[i] / 2 + _AREA_K * sig[i]
-            sel = np.abs(t - c) <= L
-            A[i] = float(d[sel].sum() * wp.step_px)
-            ok[i] = abs(c) <= max(1.0, 0.5 * wf[i])        # skeleton must sit on the dark core
+        wf, A, ok = _profile_widths(drel, prof, imin, D, t, sig, c0, win, R, wp)
         ok &= ~junc[yi, xi]
         if not ok.any():
             continue
@@ -726,13 +818,32 @@ def _dt_baseline(seg, rect):
 
 # ============================================================== aggregate
 def _local_median(pts, vals, radius):
-    """Median of `vals` over neighbours within `radius` (same units as pts)."""
-    out = np.empty(len(vals))
-    for s0 in range(0, len(pts), 1024):
-        d2 = ((pts[s0:s0 + 1024, None, :] - pts[None, :, :]) ** 2).sum(-1)
-        nb = d2 <= radius * radius
-        v = np.where(nb, vals[None, :], np.nan)
-        out[s0:s0 + 1024] = np.nanmedian(v, axis=1)
+    """Median of `vals` over neighbours within `radius` (same units as pts). Points are bucketed in square
+    cells of 2 x radius; a point's neighbours can only lie in its own and the 8 surrounding cells, so each
+    cell is compared with those only (same neighbour sets, same medians as an all-pairs search)."""
+    n = len(vals)
+    out = np.empty(n)
+    if n == 0:
+        return out
+    cell = 2.0 * radius
+    ij = np.floor((pts - pts.min(0)) / cell).astype(np.int64)
+    key = ij[:, 0] * (int(ij[:, 1].max()) + 3) + ij[:, 1]
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    ends = np.r_[starts[1:], n]
+    span = int(ij[:, 1].max()) + 3
+    where = {int(ks[s0]): (s0, e0) for s0, e0 in zip(starts, ends)}
+    r2 = radius * radius
+    for s0, e0 in zip(starts, ends):
+        k = int(ks[s0])
+        idx = order[s0:e0]
+        cand = [order[where[k + dx * span + dy][0]:where[k + dx * span + dy][1]]
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (k + dx * span + dy) in where]
+        cand = np.concatenate(cand)
+        d2 = ((pts[idx, None, :] - pts[None, cand, :]) ** 2).sum(-1)
+        nb = d2 <= r2
+        out[idx] = _masked_median_rows(np.broadcast_to(vals[cand], nb.shape), nb)
     return out
 
 
@@ -875,7 +986,9 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
         card_info.update(card.public_info())
     if seg is None:
         return MeasureResult("no_search_area", q, card_info)
-    comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board)
+    zx0, zy0, zx1, zy1 = card.spec.paper_rect_in_board_frame()
+    comps = measure_widths(rect, seg, q.get("blur_sigma_px", 1.0), card.H_img_from_board,
+                           zone_mm=(zx0 - ZONE_MARGIN_MM, zy0 - ZONE_MARGIN_MM, zx1 + ZONE_MARGIN_MM, zy1 + ZONE_MARGIN_MM))
     cam_c = camera_center_board(card.H_img_from_board, gray.shape)
     from .selection import select_cracks          # local import: select.py builds on this module
     comps, cracks = select_cracks(comps, rect, q, card, cam_c=cam_c)
