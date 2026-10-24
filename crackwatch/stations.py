@@ -3,7 +3,7 @@
 
 - `make_stations`: on one crack, STATION_COUNT points evenly spaced along its traced length (inside the
   monitoring zone, the crack's points are already limited to it), plus the point of maximum sustained width
-  (merged with a station closer than MERGE_MM). Positions are in board millimetres (card frame), the frame
+  (it replaces the nearest station when closer than max(MERGE_MM, a third of the spacing), so pins never pile up). Positions are in board millimetres (card frame), the frame
   that stays attached to the wall when the printed card stays glued.
 - `measure_at_stations`: a later photo is measured AT those board positions (mapped through the visit-to-
   visit alignment), never elsewhere. A station outside the new photo, or with no crack within reach, is
@@ -91,7 +91,7 @@ def make_stations(comp, crack, n=STATION_COUNT):
         j = int(np.argmin(np.linalg.norm(Q - mx, axis=1)))
         d = [float(np.linalg.norm(x["p"] - Q[j])) for x in st]
         k = int(np.argmin(d))
-        if d[k] < MERGE_MM:
+        if d[k] < max(MERGE_MM, total / n / 3):      # closer than a third of the spacing: that station becomes the max
             st[k].update(p=snap(mx), arc=float(s[j]), is_max=True)
         else:
             st.append({"arc": float(s[j]), "p": snap(mx), "is_max": True})

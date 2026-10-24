@@ -46,8 +46,8 @@
    "image": "real.jpg",
    "real": true,
    "ground_truth": null,
-   "source": "Real photo by the project owner, 23 Oct 2026: crack B on a rendered facade, printed A6 card taped next to it (IMG_1599). Downscaled to 2000 px and re-encoded: no EXIF, no GPS. No person, plate or street number in frame.",
-   "note": "No ground truth on a real wall. The repeatability study over all photos of this crack is in eval_real/."
+   "source": "Real photo by the project owner, 24 Oct 2026: a crack in a concrete wall, printed A6 card taped next to it (IMG_1640). Downscaled to 2000 px and re-encoded with OpenCV: no EXIF, no GPS, no maker notes. No person, plate or street number in frame.",
+   "note": "No ground truth on a real wall. Repeatability over all photos of this crack is in eval_real/RESULTS.md."
   }
  },
  "texture": {

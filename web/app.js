@@ -263,10 +263,10 @@ function hero(mm, { unc, cls = '' } = {}) {
   return h('div', { class: `hero ${cls}` }, h('span', { class: 'hero__num' }, n), h('span', { class: 'hero__unit' }, unit), unc != null ? h('span', { class: 'hero__unc' }, `± ${Wt(unc)}`) : null);
 }
 
-// ------------------------------------------------------------------ the example: a REAL crack (owner's photo, 23 Oct 2026)
+// ------------------------------------------------------------------ the example: a REAL crack (owner's photo, 24 Oct 2026, concrete wall, printed card next to it)
 const EX_ID = 'example';
 const SIM_ID = 'simulation';
-const REAL_AT = new Date(2026, 9, 23, 18, 31).getTime();
+const REAL_AT = new Date(2026, 9, 24, 14, 30).getTime();
 let truth = null;
 async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba, sh.ph]) if (k) await idb.del(k); } }
 let inflight = false;
@@ -686,7 +686,7 @@ function candidatesPhoto(c, sh, cands) {
   // measurement stations: pin on the crack, leader line, label beside it ("B · 2.41 mm"); the widest point stands out
   const L_ = stationLayout(sh, cands[0]);
   const gs = s('g', { class: 'st', 'aria-hidden': 'false' });
-  L_.pins.forEach((p) => {
+  [...L_.pins].sort((a, b) => (a.isMax ? 1 : 0) - (b.isMax ? 1 : 0)).forEach((p) => {   // the widest point drawn last, on top
     const g = s('g', { class: `st__pin ${p.isMax ? 'is-max' : ''} ${p.sig ? 'is-sig' : ''}`, role: 'img', 'aria-label': t('stAria', { id: p.id, v: Wt(p.w) }) });
     const bx = p.box; const ex = Math.min(Math.max(p.lx, bx.x), bx.x + bx.w); const ey = bx.y + bx.h / 2;
     // minimal label: thin leader, the value in light type, underlined in its width colour (the widest point in brand orange)
@@ -1013,7 +1013,7 @@ async function stationsImage(sh) {
     g.strokeStyle = widthColor(((ws[k - 1] ?? 1) + (ws[k] ?? 1)) / 2); g.lineWidth = lw * 1.5; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
   }
   const L_ = stationLayout(sh, cr); const brand = '#FF5A1F';
-  L_.pins.forEach((p) => {
+  [...L_.pins].sort((a, b) => (a.isMax ? 1 : 0) - (b.isMax ? 1 : 0)).forEach((p) => {
     const b = p.box; const ex = Math.min(Math.max(p.lx, b.x), b.x + b.w); const ey = b.y + b.h / 2;
     g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = Math.max(1.2, L_.fs * 0.08); g.beginPath(); g.moveTo(p.px[0], p.px[1]); g.lineTo(ex, ey); g.stroke();
     const uy = b.y + b.h - L_.fs * 0.12; g.lineCap = 'round';
