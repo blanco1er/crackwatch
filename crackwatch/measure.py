@@ -577,6 +577,14 @@ def normal_sigma_mm(H_img_from_board, pts_mm, normals):
     return np.linalg.norm(v, axis=1)
 
 
+def remap_rows(src, mx, my, interp, **kw):
+    """cv2.remap in row blocks: OpenCV refuses maps of 32767 rows or more (a long crack on a large photo has that many
+    profile points), so profiles are sampled block by block with identical results."""
+    if len(mx) < 30000:
+        return cv2.remap(src, mx, my, interp, **kw)
+    return np.vstack([cv2.remap(src, mx[i:i + 30000], my[i:i + 30000], interp, **kw) for i in range(0, len(mx), 30000)])
+
+
 def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_board,
                    wp: WidthParams = WidthParams()):
     xs, fw_t, pk_t, aw_t = blur_tables()
@@ -598,7 +606,7 @@ def measure_widths(rect: Rectified, seg: dict, sigma_img_px: float, H_img_from_b
         t = np.arange(-T, T + 1e-9, wp.step_px, dtype=np.float32)
         mx = (pts[:, 0:1] + nxv[:, None] * t[None, :]).astype(np.float32)
         my = (pts[:, 1:2] + nyv[:, None] * t[None, :]).astype(np.float32)
-        prof = cv2.remap(G, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        prof = remap_rows(G, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         prof = cv2.GaussianBlur(prof, (0, 0), sigmaX=wp.smooth_px / wp.step_px, sigmaY=1e-3)
         n_s = len(t)
         tail = max(4, int(0.25 * n_s))
