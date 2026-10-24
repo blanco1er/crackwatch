@@ -243,10 +243,15 @@ def hessian_ridge(rel, R, sigmas_mm=(0.2, 0.4, 0.8, 1.4, 2.2, 3.4)):
         g = cv2.GaussianBlur(rel, (0, 0), s)
         dxx = cv2.Sobel(g, cv2.CV_32F, 2, 0, ksize=3)
         dyy = cv2.Sobel(g, cv2.CV_32F, 0, 2, ksize=3)
-        dxy = cv2.Sobel(g, cv2.CV_32F, 1, 1, ksize=3) / 4.0
-        half_tr = (dxx + dyy) / 2
-        disc = np.sqrt(((dxx - dyy) / 2) ** 2 + dxy ** 2)
-        l1 = half_tr - disc                   # most negative eigenvalue
+        dxy = cv2.Sobel(g, cv2.CV_32F, 1, 1, ksize=3, scale=0.25)          # = Sobel / 4 (exact power of two)
+        # element-wise float32 arithmetic with OpenCV (multi-threaded, IEEE-exact like numpy):
+        # half_tr = (dxx + dyy) / 2 ; disc = sqrt(((dxx - dyy) / 2)^2 + dxy^2) ; l1 = half_tr - disc
+        half_tr = cv2.add(dxx, dyy)
+        half_tr *= 0.5
+        q = cv2.subtract(dxx, dyy)
+        q *= 0.5
+        disc = cv2.sqrt(cv2.add(cv2.multiply(q, q), cv2.multiply(dxy, dxy)))
+        l1 = cv2.subtract(half_tr, disc)      # most negative eigenvalue
         idx = np.flatnonzero(l1 < 0)
         l1m = l1.ravel()[idx]
         l2m = half_tr.ravel()[idx] + disc.ravel()[idx]
