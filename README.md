@@ -1,7 +1,8 @@
 # CrackWatch
 
-A digital crack gauge. A printed ChArUco card, taped once next to a crack, turns every phone photo into a
-**metric, rectified and re-registrable** view of the wall. OpenCV 5 measures the crack width in millimetres
+A digital crack gauge. A bank-size card held next to a crack (nothing to print), or for monitoring a printed
+ChArUco card taped once beside it, turns a phone photo into a **metric, rectified and re-registrable** view of the
+wall. OpenCV 5 measures the crack width in millimetres
 with an uncertainty and tracks its change between visits. An agent (Amazon Nova 2 Lite on Amazon Bedrock,
 validated by a deterministic policy) decides what happens next: a retake, a **closer photo of a precise
 region**, a comparison with the previous visit, or a maintenance ticket that **always waits for a human**.
@@ -10,8 +11,8 @@ region**, a comparison with the previous visit, or a maintenance ticket that **a
 > structural engineer. Thresholds in `crackwatch/agent.py` are configurable defaults, not engineering norms.
 
 Entry for the OpenCV AI Competition 2026 (AWS). Hosted demo: **https://p0k1pglt1e.execute-api.us-east-1.amazonaws.com/**
-(the 4-photo demo follows one synthetic crack over three months, with its known ground truth; or track your own crack
-with the printed card). Source: https://github.com/blanco1er/crackwatch (MIT).
+(see a real example — a concrete-wall crack with the printed card beside it —, follow a synthetic crack over three
+months with its known ground truth, or measure your own crack with the guided camera). Source: https://github.com/blanco1er/crackwatch (MIT).
 
 ![Architecture](docs/architecture.png)
 
@@ -19,18 +20,25 @@ with the printed card). Source: https://github.com/blanco1er/crackwatch (MIT).
 
 | Stage | OpenCV 5.0.0 | Notes |
 |---|---|---|
-| Scale | `cv2.aruco.CharucoDetector.detectBoard`, `CharucoBoard.matchImagePoints`, `cv2.findHomography(USAC_MAGSAC)` | Board frame in millimetres; A6 card (5×7 squares of 15 mm) or A5 card |
+| Capture | Guided live camera: **OpenCV.js 4.12** in a Web Worker on ~640 px frames finds the card, checks size, straightness and stillness, then shoots automatically | It only guides; the measurement is done on the server, on the full photo. Any photo is accepted: decoded with its orientation, brought to 4032 px, EXIF focal read on the device |
+| Scale (default) | **Wallet card** (any ISO ID-1 card, 85.60 × 53.98 mm): LSD segments on L, a, b → card-shaped quads → sub-pixel edge points per side, robust line fits, corners = line intersections, exact 4-point homography; card thickness corrected; scale uncertainty by Monte Carlo over the four lines | Nothing to print. Retake reasons when it cannot be trusted (cut, too small, oblique, occluded, not flat). The card is **blurred in every image returned or stored** |
+| Scale (precision mode) | Printed ChArUco: `cv2.aruco.CharucoDetector.detectBoard`, `CharucoBoard.matchImagePoints`, `cv2.findHomography(USAC_MAGSAC)` | Board frame in millimetres; A6 card (5×7 squares of 15 mm). Left on the wall, it gives every visit the same frame |
 | Quality | Sobel on the card's step edges, saturation outside the card, tilt from the homography | Blur measured **in pixels** (Gaussian σ) on the card itself |
 | Rectification | `cv2.warpPerspective` into the card frame | Resolution chosen from the native px/mm |
 | Segmentation | 8-bit median background, multi-scale Hessian ridge (`GaussianBlur` + `Sobel`, σ 0.2–3.4 mm), hysteresis with `connectedComponentsWithStats` (weak pixels must also be ≥ 3 % darker than their background), shape filters, Zhang–Suen thinning | `cv2.ximgproc` is contrib-only in OpenCV 5, so thinning is implemented in NumPy |
-| Width | Perpendicular profiles (`cv2.remap`, 0.25 px steps), each **deconvolved with the blur measured on the card** (box ⊗ Gaussian model); the local background is read in a 1 mm band on each side of the blurred edges, so a neighbouring dark line cannot narrow the width | Output: median / P90 / sustained max (P95 over 6 mm), 1σ uncertainty, confidence, minimum measurable width, view angle across the crack; summary over a fixed monitoring zone (card sheet + 40 mm, card frame) |
+| Width | Perpendicular profiles (`cv2.remap`, 0.25 px steps), each **deconvolved with the blur measured on the card** (box ⊗ Gaussian model); the local background is read in a 1 mm band on each side of the blurred edges, so a neighbouring dark line cannot narrow the width | Output: median / P90 / sustained max (P95 over 6 mm), 1σ uncertainty, confidence, minimum measurable width, view angle across the crack; summary over a fixed monitoring zone (card sheet + 10 cm, card frame) |
+| Main crack | Candidates in the card frame: fragments on opposite sides of the card that continue each other are joined (the crack passes under it); score = closeness to the card × length in the zone × darkness² (an open crack is a dark cavity; joints and stains are surface marks); a line staying within 1 mm of a straight line over 50 mm (joint, wall edge, pipe) is divided by 4 | The user can tap another candidate |
+| Stations | 5 points evenly spaced along the chosen crack + its widest point, labelled A–F, fixed in card millimetres; width = median over ±2 mm | At the next visit the new photo is measured **at the same points** (aligned frame), each change tested for significance; a point outside the photo is "not visible", never invented. The points are kept on the device, so a comparison still works after the photos are deleted |
 | Change | Same card frame, or ORB + `findHomography(USAC_MAGSAC)` + `findTransformECC` (band-passed) if the card was re-glued | Widening tested on the whole crack **and on each ~10 mm stretch** (z-test with point scatter + each photo's systematic error, Bonferroni 5 % per pair, ≥ 0.1 mm); new length; a segment is "new" only if visit 1 shows no ridge there |
 | Decision | Tool use through the Bedrock Converse API; rule policy as validator and fallback | Every step traced (tool, reason, model, latency, tokens, cost) |
+| Service | `POST /api/inspect` answers a job id at once; the Lambda runs the inspection asynchronously (up to 120 s); the app polls `GET /api/job/<id>` every second | No photo can hit API Gateway's 29 s limit |
 
 ![Agent flow](docs/agent-flow.png)
 
 The card does four jobs at once: metric scale, rectification, registration between visits, and measurement
-of the camera's blur (point-spread function), which is what makes sub-pixel widths possible.
+of the camera's blur (point-spread function), which is what makes sub-pixel widths possible. The wallet card is
+the zero-effort default for a spot check; the printed card, left on the wall, is the reference for monitoring
+(about 15× smaller scale error on synthetic scenes, see below).
 
 ## Results
 
@@ -63,9 +71,27 @@ found on the real photos, checked on this held-out set, and no threshold was re-
 
 ### Real photos
 
-Printed test chart (8 bars of known width, 0.2–3 mm) photographed at 3 distances × 3 angles × 2 lightings, its
-"second visit" version (3 bars widened, 2 extended), and two real cracks (repeatability):
-**REAL_RESULTS** — produced by `scripts/process_real.py`, see `eval_real/RESULTS.md`.
+All from the owner's iPhone (HEIC, measured at 4032 px like the service), no ground truth except the printed chart.
+Full tables: [`eval_real/RESULTS.md`](eval_real/RESULTS.md) (`scripts/process_real.py`) and
+[`eval_real_carte/RESULTS-deux-cartes.md`](eval_real_carte/RESULTS-deux-cartes.md) (`scripts/eval_idcard_twocards.py`).
+
+| Test | Result |
+|---|---|
+| **E2** printed chart, bars of known width 0.2–3 mm (v1: 4 photos, v2: 8 photos) | Mean absolute error **0.061 mm** (v1, 32 bar measurements) and **0.075 mm** (v2, 61). Smallest bar found on ≥ 80 % of photos: **0.20 mm**. Thin bars read wide (0.2 mm → +0.10 mm on v1, 0.3 mm → +0.06); one v2 bar printed at 0.7 mm reads 0.61 mm on all 8 photos while its 0.7 mm neighbour reads 0.72 (print not checked with a scanner) |
+| **E4** two "visits" of the chart (v1 → v2: 3 bars widened by 0.2 / 0.5 / 0.5 mm, 2 lengthened by 10 mm) | Width change per bar: mean error **0.027 mm**. Photo pairs flagged "significant widening": **4/4**; lengthening detected 4/4. Per ~10 mm stretch: widened bars flagged in 8 of 12 comparisons (the 0.5 mm ones in 7 of 8, the 0.2 mm one in 1 of 4), unchanged bars wrongly flagged in 1 of 17 |
+| **E3** repeatability, concrete wall, card next to the crack (5 photos, printed card as reference) | Coefficient of variation of the width across photos: **2.9 %** (monitoring zone), **3.0 %** on the same 10 mm stretches; 0.7 % over the 3 photos taken within 10° of square. 2 more photos with the printed card only: 4.89 and 4.78 mm |
+| **E3** rendered facade, card next to the crack (8 + 4 photos) | 14.8 % and 30.0 % (zone), 15.0 % and 6.7 % on the same stretches |
+| **E3** card taped ON the crack (crack A: 5 photos, crack B: 7) | 15.7 % and 17.8 % (zone), 17.3 % and 16.7 % on the same stretches |
+| **Wallet card vs printed card**, both in the same 13 photos | Width at the same crack points, wallet / printed: median **−1.9 %**, from −3.1 % to +1.3 %; inside the announced ±2σ scale uncertainty in **13/13** |
+
+Why the facade numbers are worse: these cracks are deep and irregular (chipped lips, debris), so the *apparent*
+width depends on the viewing angle (crack A: 4.0–4.1 mm within 6.5° of square, 2.8–3.7 mm at 14–20°), and on the
+render the segmentation merges the horizontal mortar joints into the crack. On the clean concrete crack the same
+pipeline repeats within 3 %. The wallet card's rectified window differs from the printed card's, so the two
+"main crack" medians are not comparable (+21 % median); only the same-points comparison above is. On synthetic scenes
+the wallet card's scale error at the crack is 0.63 % median, 2.31 % P90 (130 accepted of 200 scenes), against
+0.04 % for the printed card ([`eval_idcard/RESULTS-carte.md`](eval_idcard/RESULTS-carte.md)): use the wallet card
+for a spot check, the printed card for monitoring.
 
 Measurement fixes of 23 Oct 2026, each found on the real photos and explainable in one sentence:
 - **Wide widths were under-estimated** (2.0 mm bar read 1.83 mm, 3.0 mm bar often lost): each profile's background
@@ -90,7 +116,8 @@ Measurement fixes of 23 Oct 2026, each found on the real photos and explainable 
 - The homography assumes a planar wall around the card; curved surfaces are out of scope.
 - A single photo measures the *apparent* width: for a deep crack seen at an angle, one lip hides part of it.
 - Any long dark line (wall edge, mortar joint) near the card enters the monitoring zone; the zone fixes *where*
-  the width is read, not *what* is read.
+  the width is read, not *what* is read. On a rendered facade the segmentation can merge the crack with the
+  mortar joints it touches; the main-crack choice then includes them.
 - One photo per visit cannot reliably show widening below ~0.3 mm (calibrated per-photo systematic error).
 - An experimental spur-pruning step (`SegParams.prune_short_mm`, off by default) improved the max-width error
   on the tuning set (0.266 → 0.251 mm) but lowered crack coverage (0.85 → 0.75), so it was not adopted.
@@ -99,16 +126,20 @@ Measurement fixes of 23 Oct 2026, each found on the real photos and explainable 
 
 - **One container Lambda, arm64 (Graviton)**, Python 3.12, `opencv-python-headless==5.0.0.93`, 3008 MB, behind an
   **API Gateway HTTP API** with throttled routes. It serves the page and runs measurement + agent loop.
-- **Amazon S3** (private, SSE, TLS only): photos are uploaded with a 5-minute presigned POST (JPEG, ≤ 15 MB) and
-  **deleted after 1 day**. Decoding drops EXIF and GPS.
+- **Amazon S3** (private, SSE, TLS only): photos are uploaded with a 5-minute presigned POST (JPEG, ≤ 15 MB; the app
+  brings any photo to 4032 px first) and **deleted after 1 day**. Decoding drops EXIF and GPS. A photo showing a bank
+  card is replaced in storage by its redacted copy.
+- **Asynchronous inspections**: the HTTP request stores the job and answers at once; the function invokes itself
+  asynchronously (`lambda:InvokeFunction` on itself, timeout 120 s, no retry) and writes the result JSON next to the
+  uploads (same 1-day expiry); the app polls it.
 - **Amazon Bedrock**: `us.amazon.nova-2-lite-v1:0` through the Converse API with 5 tools. On-demand price read from
   the AWS Price List API on 19 Oct 2026: $0.33 / $2.75 per million input / output tokens in us-east-1, i.e.
   about $0.0015 per decision.
 - **DynamoDB**: traces, tickets, usage counters and the anonymous visit log (TTL). **CloudWatch**: JSON logs, 14 days.
 - **Cost guards**: route throttling, inspections per day (global and per anonymous visitor), LLM calls per day
-  (beyond it, the rules decide alone), 15 MB photo limit, 29 s timeout. Data resources are retained if the stack is deleted.
-- **Least privilege**: the function role can read/write `uploads/*` in its bucket, four DynamoDB actions on its table,
-  and `bedrock:InvokeModel` on one model. No key or secret is stored in the image or in this repository.
+  (beyond it, the rules decide alone), 15 MB upload limit, 120 s per inspection. Data resources are retained if the stack is deleted.
+- **Least privilege**: the function role can read/write/delete `uploads/*` in its bucket, four DynamoDB actions on its
+  table, invoke itself, and `bedrock:InvokeModel` on one model. No key or secret is stored in the image or in this repository.
 - **Privacy**: visits are logged anonymously (salted hash of IP + browser; the IP itself is never stored) so the author
   knows whether the demo was tried. No photo content, file name or personal data is logged.
 
@@ -123,7 +154,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python scripts/cw.py agent photo.jpg --previous older.jpg              # one inspection, rules only
 .venv/bin/python scripts/serve_local.py --port 8765                              # the demo page, locally, rules only
 AWS_PROFILE=<profile> .venv/bin/python scripts/serve_local.py --bedrock         # ... with Nova 2 Lite as planner
+.venv/bin/python scripts/serve_local.py --jobs                                   # ... with AWS-like async jobs
 .venv/bin/python scripts/process_real.py --dir <photos> --out eval_real          # real-photo evaluation
+.venv/bin/python scripts/eval_idcard_twocards.py --dir <photos>/v2-carte-a-cote --out eval_real_carte
 ```
 
 Deploy (us-east-1, your own credentials; needs the AWS CLI and `crane`, not Docker):
@@ -145,6 +178,8 @@ Print the cards from `print/*.pdf` at **100 % / actual size** and check the prin
 |---|---|
 | `crackwatch/card.py`, `printio.py` | ChArUco card specs, print-exact PNG/PDF, E2/E4 test charts |
 | `crackwatch/measure.py` | measurement pipeline |
+| `crackwatch/idcard.py`, `synth_idcard.py`, `exif.py` | wallet-card reference (ID-1), its synthetic evaluation, EXIF focal |
+| `crackwatch/selection.py`, `stations.py` | main-crack choice, fixed measurement stations |
 | `crackwatch/change.py` | two-visit registration and change |
 | `crackwatch/agent.py` | rule policy, Nova (Converse) planner, guard-rails, agent loop and trace |
 | `crackwatch/service.py`, `api.py`, `store.py`, `visits.py` | hosted demo: inspection service, routes, storage, anonymous visits |
@@ -153,10 +188,12 @@ Print the cards from `print/*.pdf` at **100 % / actual size** and check the prin
 | `scripts/make_demo_samples.py` | the 4 demo photos: a synthetic crack (exact ground truth, shown in the UI) on a real CC0 wall texture (`crackwatch/assets/textures/ATTRIBUTION.md`) |
 | `web/` | the app (no framework, no third-party request): tracked cracks stored on the device, crack history with aligned before/after, live analysis, inspector card and trace, human ticket review, PDF report, calendar reminder, share link, EN/FR, light/dark |
 | `deploy/` | Lambda handler, image build without Docker, Dockerfile, CloudFormation template, deploy script |
-| `tests/` | agent scenarios, API, cost guards, visits, planner fallback |
+| `tests/` | agent scenarios, API and async jobs, cost guards, visits, planner fallback, wallet card and redaction, wide widths, main-crack choice, stations, fast paths |
 
-The four demo photos are one illustrative wall chosen among six generated walls; the aggregate numbers above are
-the honest measure of accuracy, and the demo page shows each photo's ground truth next to the measurement.
+The four simulation photos are one illustrative wall chosen among six generated walls; the aggregate numbers above
+are the honest measure of accuracy, and the demo page shows each photo's ground truth next to the measurement. The
+real example (`web/samples/real.jpg`, concrete wall, 24 Oct 2026) is the owner's photo IMG_1640, downscaled and
+re-encoded without any metadata.
 
 ## License
 
