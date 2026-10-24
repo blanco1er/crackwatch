@@ -128,9 +128,10 @@ def link_across_card(comps, paper):
 def _merge(comps, idx):
     if len(idx) == 1:
         return comps[idx[0]]
-    keys = ("pts_px", "pts_mm", "width_mm", "width_fwhm_raw_mm", "width_fwhm_mm", "width_int_mm", "lower_bound_mm",
-            "resolved", "native_ppm", "sigma_mm")
-    m = {k: np.concatenate([comps[i][k] for i in idx]) for k in keys if all(comps[i].get(k) is not None for i in idx)}
+    keys = ("pts_px", "pts_mm", "width_mm", "width_fwhm_raw_mm", "width_fwhm_mm", "width_int_mm", "width_dt_mm",
+            "lower_bound_mm", "resolved", "native_ppm", "sigma_mm")
+    m = {k: (np.concatenate([comps[i][k] for i in idx]) if all(comps[i].get(k) is not None for i in idx) else None)
+         for k in keys}
     srcs = [comps[i]["depth_source"] for i in idx]
     m.update({"length_mm": float(sum(comps[i]["length_mm"] for i in idx)),
               "depth_ref": float(np.average([comps[i]["depth_ref"] for i in idx], weights=[len(comps[i]["pts_mm"]) for i in idx])),
