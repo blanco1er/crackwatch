@@ -35,6 +35,35 @@ months with its known ground truth, or measure your own crack with the guided ca
 
 ![Agent flow](docs/agent-flow.png)
 
+### Why a bank card works as a ruler
+
+Bank cards, national ID cards, driving licences and almost every transport, loyalty or gift card follow one
+international standard, **ISO/IEC 7810 ID-1: 85.60 × 53.98 mm, corner radius 3.18 mm, 0.76 mm thick** (tolerances
+about ±0.15 %), in every country. Almost everyone already carries a calibrated reference. Business cards are not
+standardised (85 × 55 mm in Europe, 88.9 × 50.8 mm in the US, usually square corners) and the shape check refuses
+them: on 20 synthetic scenes per format, square-corner business cards were never accepted (0 of 40); a rare
+85 × 55 mm card with rounded corners was accepted in 6 of 20 scenes, with a scale up to ~2 % off, which is why the
+app asks for a bank, ID, transport or loyalty card.
+
+How `crackwatch/idcard.py` uses it:
+- **Sub-pixel edges**: LSD segments propose card-shaped quads; each side is re-measured at full resolution with
+  sub-pixel edge points (rounded corners excluded) and a robust line fit; corners are the line intersections.
+- **Rounded corners verified**: each 3.18 mm arc must be found where the four lines predict it; with the strict ID-1
+  proportions, this separates a real card from other rectangles.
+- **Pose with the real focal length**: the 35 mm-equivalent focal is read from EXIF on the device before resizing,
+  so proportions are checked for that camera; tilt comes from the homography.
+- **Thickness**: the card's face is up to 0.76 mm in front of the wall; the scale is corrected.
+- **Fingers**: a finger over an edge is masked (redder than plaster or concrete for every skin tone in our photos,
+  thicker than a shadow or a joint); a hidden side can be rebuilt from the other three if the result is still a
+  flat ID-1 rectangle; otherwise the app asks for a retake and explains how to hold the card.
+- **Uncertainty**: Monte Carlo over the four lines + ISO tolerance + thickness, growing with the distance from the
+  card, propagated into every width's uncertainty.
+- **Measure first, blur after**: the card's geometry is stored, then its interior is blurred in every image
+  returned and in the stored copy; a follow-up reuses the stored geometry, never re-measures a blurred photo.
+
+The printed ChArUco card stays the **precision mode** for monitoring: about 15× smaller scale error on synthetic
+scenes, and the same frame at every visit.
+
 The card does four jobs at once: metric scale, rectification, registration between visits, and measurement
 of the camera's blur (point-spread function), which is what makes sub-pixel widths possible. The wallet card is
 the zero-effort default for a spot check; the printed card, left on the wall, is the reference for monitoring
@@ -71,7 +100,7 @@ found on the real photos, checked on this held-out set, and no threshold was re-
 
 ### Real photos
 
-All from the owner's iPhone (HEIC, measured at 4032 px like the service), no ground truth except the printed chart.
+All taken by us on real walls with an ordinary phone (iPhone HEIC, measured at 4032 px like the service), no ground truth except the printed chart.
 Full tables: [`eval_real/RESULTS.md`](eval_real/RESULTS.md) (`scripts/process_real.py`) and
 [`eval_real_carte/RESULTS-deux-cartes.md`](eval_real_carte/RESULTS-deux-cartes.md) (`scripts/eval_idcard_twocards.py`).
 
@@ -82,14 +111,14 @@ Full tables: [`eval_real/RESULTS.md`](eval_real/RESULTS.md) (`scripts/process_re
 | **E3** repeatability, concrete wall, card next to the crack (5 photos, printed card as reference) | Coefficient of variation of the width across photos: **2.9 %** (monitoring zone), **3.0 %** on the same 10 mm stretches; 0.7 % over the 3 photos taken within 10° of square. 2 more photos with the printed card only: 4.89 and 4.78 mm |
 | **E3** rendered facade, card next to the crack (8 + 4 photos) | 14.8 % and 30.0 % (zone), 15.0 % and 6.7 % on the same stretches |
 | **E3** card taped ON the crack (crack A: 5 photos, crack B: 7) | 15.7 % and 17.8 % (zone), 17.3 % and 16.7 % on the same stretches |
-| **Wallet card vs printed card**, both in the same 13 photos | Width at the same crack points, wallet / printed: median **−1.9 %**, from −3.1 % to +1.3 %; inside the announced ±2σ scale uncertainty in **13/13** |
+| **Wallet card vs printed card**, both in the same 13 photos | Width at the same crack points, wallet / printed: median **−1.7 %**, from −3.1 % to +1.3 %; inside the announced ±2σ scale uncertainty in **12/13**; bank card accepted in 13/13 |
 
 Why the facade numbers are worse: these cracks are deep and irregular (chipped lips, debris), so the *apparent*
 width depends on the viewing angle (crack A: 4.0–4.1 mm within 6.5° of square, 2.8–3.7 mm at 14–20°), and on the
 render the segmentation merges the horizontal mortar joints into the crack. On the clean concrete crack the same
 pipeline repeats within 3 %. The wallet card's rectified window differs from the printed card's, so the two
 "main crack" medians are not comparable (+21 % median); only the same-points comparison above is. On synthetic scenes
-the wallet card's scale error at the crack is 0.63 % median, 2.31 % P90 (130 accepted of 200 scenes), against
+the wallet card's scale error at the crack is 0.60 % median, 2.49 % P90 (119 accepted of 200 scenes), against
 0.04 % for the printed card ([`eval_idcard/RESULTS-carte.md`](eval_idcard/RESULTS-carte.md)): use the wallet card
 for a spot check, the printed card for monitoring.
 
@@ -192,7 +221,7 @@ Print the cards from `print/*.pdf` at **100 % / actual size** and check the prin
 
 The four simulation photos are one illustrative wall chosen among six generated walls; the aggregate numbers above
 are the honest measure of accuracy, and the demo page shows each photo's ground truth next to the measurement. The
-real example (`web/samples/real.jpg`, concrete wall, 24 Oct 2026) is the owner's photo IMG_1640, downscaled and
+real example (`web/samples/real.jpg`, concrete wall, 24 Oct 2026) is our photo IMG_1640, downscaled and
 re-encoded without any metadata.
 
 ## License
