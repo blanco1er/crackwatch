@@ -107,6 +107,11 @@ function save() {
 const crackById = (id) => data.cracks.find((c) => c.id === id);
 const allShots = (c) => c.visits.flatMap((v) => v.shots.map((sh) => ({ ...sh, visitAt: v.at, visitId: v.id })));
 const lastShot = (c) => { const v = c.visits[c.visits.length - 1]; return v && v.shots[v.shots.length - 1]; };
+// measurement stations of the tracked crack's last measured photo (kept here: the photos are deleted after a day)
+function prevStations(c) {
+  const sh = c && [...allShots(c)].reverse().find((x) => isMeasured(x) && x.cracks[0].stations && x.cracks[0].stations.length);
+  return sh ? sh.cracks[0].stations.map(({ id, board_mm, width_mm, u_mm, is_max }) => ({ id, board_mm, width_mm, u_mm, is_max })) : null;
+}
 const isMeasured = (sh) => sh && sh.status === 'ok' && sh.cracks && sh.cracks[0] && !['request_retake', 'request_closer_photo'].includes(sh.decision?.name);
 // one point per visit: the last measured photo of that visit
 function series(c) {
@@ -206,7 +211,7 @@ const EX_ID = 'example';
 const SIM_ID = 'simulation';
 const REAL_AT = new Date(2026, 9, 23, 18, 31).getTime();
 let truth = null;
-async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba]) if (k) await idb.del(k); } }
+async function dropImages(c) { for (const sh of allShots(c)) { for (const k of [sh.img, sh.cu, sh.ba, sh.ph]) if (k) await idb.del(k); } }
 let inflight = false;
 function newExample() {
   const c = { id: EX_ID, demo: true, example: true, real: true, tracked: true, name: t('exName'), place: t('exPlace'), createdAt: REAL_AT, nextVisitAt: null,
@@ -278,18 +283,21 @@ async function recordShot(c, d, { source, key = null, at = Date.now(), visitInde
   await idb.put(imgKey, `data:image/jpeg;base64,${d.overlay_jpeg_b64}`);
   let cuKey = null;
   if (d.closeup && d.closeup.jpeg_b64) { cuKey = `cu-${id}`; await idb.put(cuKey, `data:image/jpeg;base64,${d.closeup.jpeg_b64}`); }
+  let phKey = null;
+  if (d.photo_jpeg_b64) { phKey = `ph-${id}`; await idb.put(phKey, `data:image/jpeg;base64,${d.photo_jpeg_b64}`); }
   let baKey = null;
   if (d.before_after) { baKey = `ba-${id}`; await idb.put(baKey, JSON.stringify({ before: `data:image/jpeg;base64,${d.before_after.before_jpeg_b64}`, after: `data:image/jpeg;base64,${d.before_after.after_jpeg_b64}` })); }
   const last = d.trace[d.trace.length - 1].action;
   const sh = { id, at, source, key, status: d.measurement.status, decision: { name: last.name, args: last.args, planner: last.planner, reason: last.reason },
     trace: d.trace, quality: d.measurement.quality, card: d.measurement.card, cracks: d.measurement.cracks, comparison: d.comparison,
     ticket: d.ticket ? { id: d.ticket.id, severity: d.ticket.severity, evidence: d.ticket.evidence, status: 'pending_human_approval' } : null,
-    timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, truth: gt, inspectionId: d.inspection_id, ovSize: d.overlay_size || null };
+    timings: d.timings_ms, llm: d.llm, img: imgKey, cu: cuKey, ba: baKey, ph: phKey, truth: gt, inspectionId: d.inspection_id, ovSize: d.overlay_size || null,
+    cardPx: d.card_outline_px || null, firstId: d.measurement.cracks?.[0]?.id ?? null, stationsCmp: d.stations_compare && d.stations_compare.status === 'ok' ? d.stations_compare : null };
   let v;
   if (visitIndex != null) {
     v = c.visits[visitIndex];
     const same = v.shots.findIndex((x) => x.source === source);
-    if (same >= 0) { const o = v.shots[same]; if (o.img) idb.del(o.img); if (o.cu) idb.del(o.cu); if (o.ba) idb.del(o.ba); v.shots.splice(same, 1); }
+    if (same >= 0) { const o = v.shots[same]; for (const k of [o.img, o.cu, o.ba, o.ph]) if (k) idb.del(k); v.shots.splice(same, 1); }
   } else {
     const lv = c.visits[c.visits.length - 1]; const ls = lv && lv.shots[lv.shots.length - 1];
     const sameVisit = ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && at - ls.at < 12 * 3600000;
@@ -334,7 +342,8 @@ async function measureOwn(file) {
     const sameVisit = !!(ls && ['request_retake', 'request_closer_photo'].includes(ls.decision?.name) && Date.now() - ls.at < 12 * 3600000);
     const prevShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.key && Date.now() - x.at < 23 * 3600000 && !(sameVisit && x.visitId === lv.id));
     const retakes = sameVisit ? lv.shots.filter((x) => ['request_retake', 'request_closer_photo'].includes(x.decision?.name)).length : 0;
-    const d = await api('/api/inspect', { image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes });
+    const pst = sameVisit ? null : prevStations(c);
+    const d = await api('/api/inspect', { image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst });
     warm = true;
     const sh = await recordShot(c, d, { source: 'upload', key: up.key });
     S.run = { ...S.run, phase: 'done', result: d, shot: sh };
@@ -504,7 +513,7 @@ function renderResult() {
   const cands = (sh.cracks || []).filter((x) => x.outline_px && x.outline_px.length > 1);
   const multi = cands.length > 1 && sh.ovSize;
   let frame;
-  if (multi) frame = candidatesPhoto(c, sh, cands);
+  if (sh.ovSize && cands.length && cands[0] === cr) frame = candidatesPhoto(c, sh, cands);
   else {
     frame = h('div', { class: `photo ${sh.cu && !sh.cuStale ? 'photo--wide' : ''}` });
     const im = h('img', { alt: t('overlayAlt'), class: sh.cu && !sh.cuStale ? 'is-cover' : '' }); setImg(im, sh.cu && !sh.cuStale ? sh.cu : sh.img); frame.append(im);
@@ -512,7 +521,7 @@ function renderResult() {
   const A = [frame, multi ? h('p', { class: 'pick-hint' }, icon('zoom'), h('span', null, t('pickHint'))) : null,
     h('p', { class: 'legend' }, h('span', { class: 'legend__ramp', 'aria-hidden': 'true' }), t('legend'))];
   const B = [];
-  if (cr) B.push(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }));
+  if (cr) B.push(h('p', { class: 'kicker' }, t('maxWidth')), hero(cr.width_mm.max, { unc: 2 * cr.uncertainty_mm }), stationList(sh, cr));
   B.push(h('div', { class: `verdict ${TONE_CLASS[v.tone]}` }, h('span', { class: 'verdict__dot', 'aria-hidden': 'true' }), h('div', null, h('h2', null, v.title), h('p', null, v.text))));
   if (cr) {
     const cmp = sh.comparison && sh.comparison.status === 'ok' ? sh.comparison : null;
@@ -540,33 +549,117 @@ function widthColor(w) {
   const a = [255, 200, 60], b = [215, 30, 40];
   return `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * t)).join(',')})`;
 }
-// several ridges measured (joint, wall edge…): the server ranks them (card proximity, cavity darkness, not man-made straight); tap another to switch
+// Measurement stations of the shown crack: on a follow-up of the server's chosen crack, the points re-measured
+// at the previous stations; otherwise the crack's own stations.
+function shownStations(sh, cr) {
+  const cmp = sh.stationsCmp; const first = sh.cracks && sh.cracks[0] === cr;
+  if (cmp && first && cr.id === sh.firstId) {
+    return cmp.stations.filter((r) => r.status === 'ok' && r.overlay_px).map((r) => ({ id: r.id, px: r.overlay_px, w: r.width_mm, isMax: r.is_max, sig: r.significant }));
+  }
+  return (cr.stations || []).filter((x) => x.overlay_px).map((x) => ({ id: x.id, px: x.overlay_px, w: x.width_mm, isMax: x.is_max }));
+}
+// Label layout, shared by the screen (SVG) and the PDF (canvas): pins on the crack, each label beside it on
+// alternating sides, pushed further out until it overlaps neither another label, a pin, the card nor the edge.
+function stationLayout(sh, cr) {
+  const [Wp, Hp] = sh.ovSize; const fs = Math.max(14, Math.max(Wp, Hp) * 0.033); const r = fs * 0.62;   // ~12 px on a 390 px phone (photo box 44vh high)
+  const line = cr.outline_px || []; const card = sh.cardPx || null;
+  const inPoly = (x, y, P) => { let o = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i]; const [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) o = !o; } return o; };
+  const hitsCard = (b) => card && [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h], [b.x + b.w / 2, b.y + b.h / 2]].some(([x, y]) => inPoly(x, y, card));
+  const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const pins = shownStations(sh, cr); const placed = []; const pinBoxes = pins.map((p) => ({ x: p.px[0] - r, y: p.px[1] - r, w: 2 * r, h: 2 * r }));
+  const D = Math.max(Wp, Hp) * 0.07;
+  return { fs, r, Wp, Hp, pins: pins.map((p, i) => {
+    let k = 0, best = 1e18;
+    line.forEach((q, j) => { const d = (q[0] - p.px[0]) ** 2 + (q[1] - p.px[1]) ** 2; if (d < best) { best = d; k = j; } });
+    const a = line[Math.max(0, k - 2)] || p.px; const b = line[Math.min(line.length - 1, k + 2)] || p.px;
+    let tx = b[0] - a[0], ty = b[1] - a[1]; const n0 = Math.hypot(tx, ty) || 1; tx /= n0; ty /= n0;
+    const nx = -ty, ny = tx;
+    const text = `${p.id} · ${Wt(p.w)}`; const bw = fs * 0.56 * text.length + fs * 0.9; const bh = fs * 1.55;
+    // candidates: both sides, further out, then slid along the crack; the first free one wins, else the least crowded
+    let pick = null, fallback = null, fewest = 1e9;
+    const sides = i % 2 ? [-1, 1] : [1, -1];
+    outer: for (const mult of [1, 1.7, 2.6]) {
+      for (const slide of [0, 1, -1, 2, -2]) {
+        for (const side of sides) {
+          const qx = p.px[0] + side * nx * D * mult + slide * tx * bh * 1.3, qy = p.px[1] + side * ny * D * mult + slide * ty * bh * 1.3;
+          const right = side * nx >= 0;
+          const box = { x: Math.min(Wp - bw - 4, Math.max(4, right ? qx : qx - bw)), y: Math.min(Hp - bh - 4, Math.max(4, qy - bh / 2)), w: bw, h: bh };
+          const n = (hitsCard(box) ? 2 : 0) + placed.filter((o) => over(o, box)).length * 3 + pinBoxes.filter((o) => over(o, box)).length * 3;
+          if (n === 0) { pick = { box, qx, qy }; break outer; }
+          if (n < fewest) { fewest = n; fallback = { box, qx, qy }; }
+        }
+      }
+    }
+    pick = pick || fallback;
+    placed.push(pick.box);
+    return { ...p, text, box: pick.box, lx: pick.qx, ly: pick.qy };
+  }) };
+}
+// several ridges measured (joint, wall edge…): the server ranks them (card proximity, cavity darkness, not man-made
+// straight); the others are faint dashed ghosts, tap one to switch. The chosen crack carries its measurement stations.
 function candidatesPhoto(c, sh, cands) {
   const [Wp, Hp] = sh.ovSize;
   const box = h('div', { class: 'photo photo--free', style: `aspect-ratio:${Wp}/${Hp}; width:min(100%, calc(44vh * ${(Wp / Hp).toFixed(4)}))` });
-  const im = h('img', { alt: t('overlayAlt') }); setImg(im, sh.img); box.append(im);
-  const svg = s('svg', { viewBox: `0 0 ${Wp} ${Hp}`, class: 'cands' });
-  cands.forEach((cr, i) => {
+  const im = h('img', { alt: t('overlayAlt') }); setImg(im, sh.ph || sh.img); box.append(im);
+  const svg = s('svg', { viewBox: `0 0 ${Wp} ${Hp}`, class: `cands ${sh.ph ? 'cands--clean' : ''}` });
+  const lw = Math.max(3, Wp / 260);
+  [...cands].reverse().forEach((cr) => {
+    const i = cands.indexOf(cr);
     // a crack running under the card comes as several fragments: outline_breaks = indices where a new one starts
     const brk = new Set(cr.outline_breaks || []);
     const parts = []; cr.outline_px.forEach((q, k) => { if (k === 0 || brk.has(k)) parts.push([]); parts[parts.length - 1].push(q); });
     const g = s('g', { class: `cand ${i === 0 ? 'is-on' : ''}`, role: 'button', tabindex: '0', 'aria-pressed': String(i === 0), 'aria-label': t('candAria', { n: i + 1, v: Wt(cr.width_mm.max) }) });
-    parts.forEach((pp) => { const pts = pp.map((q) => q.join(',')).join(' '); g.append(s('polyline', { points: pts, class: 'cand__hit' }), s('polyline', { points: pts, class: 'cand__halo' })); });
+    parts.forEach((pp) => { const pts = pp.map((q) => q.join(',')).join(' '); g.append(s('polyline', { points: pts, class: 'cand__hit' }), s('polyline', { points: pts, class: 'cand__halo', 'stroke-width': lw * 2.4 })); });
     const ws = cr.outline_w_mm;
     if (i === 0 && ws && ws.length === cr.outline_px.length) {
       // the chosen crack: each segment coloured by its measured width, same absolute scale as the server's photos
       for (let k = 1; k < cr.outline_px.length; k++) {
         if (brk.has(k)) continue;
         const [x1, y1] = cr.outline_px[k - 1]; const [x2, y2] = cr.outline_px[k];
-        g.append(s('line', { x1, y1, x2, y2, class: 'cand__seg', stroke: widthColor((ws[k - 1] + ws[k]) / 2) }));
+        g.append(s('line', { x1, y1, x2, y2, class: 'cand__seg', stroke: widthColor((ws[k - 1] + ws[k]) / 2), 'stroke-width': lw * 1.5 }));
       }
-    } else parts.forEach((pp) => g.append(s('polyline', { points: pp.map((q) => q.join(',')).join(' '), class: 'cand__line' })));
-    const pick = () => chooseCrack(c, sh, cr);
-    g.addEventListener('click', pick); g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+    } else parts.forEach((pp) => g.append(s('polyline', { points: pp.map((q) => q.join(',')).join(' '), class: 'cand__line', 'stroke-width': lw, 'stroke-dasharray': `${lw * 2.5} ${lw * 2.5}` })));
+    if (i > 0 || cands.length > 1) {
+      const pick = () => chooseCrack(c, sh, cr);
+      g.addEventListener('click', pick); g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+    }
     svg.append(g);
   });
+  // measurement stations: pin on the crack, leader line, label beside it ("B · 2.41 mm"); the widest point stands out
+  const L_ = stationLayout(sh, cands[0]);
+  const gs = s('g', { class: 'st', 'aria-hidden': 'false' });
+  L_.pins.forEach((p) => {
+    const g = s('g', { class: `st__pin ${p.isMax ? 'is-max' : ''} ${p.sig ? 'is-sig' : ''}`, role: 'img', 'aria-label': t('stAria', { id: p.id, v: Wt(p.w) }) });
+    const bx = p.box; const ex = Math.min(Math.max(p.lx, bx.x), bx.x + bx.w); const ey = bx.y + bx.h / 2;
+    g.append(s('line', { x1: p.px[0], y1: p.px[1], x2: ex, y2: ey, class: 'st__lead', 'stroke-width': Math.max(2, L_.fs * 0.12) }));
+    g.append(s('circle', { cx: p.px[0], cy: p.px[1], r: L_.r, class: 'st__dot', 'stroke-width': Math.max(2, L_.fs * 0.13) }));
+    g.append(s('rect', { x: bx.x, y: bx.y, width: bx.w, height: bx.h, rx: bx.h / 2, class: 'st__tag' }));
+    const tx = s('text', { x: bx.x + bx.w / 2, y: bx.y + bx.h / 2, class: 'st__txt', 'font-size': L_.fs, 'text-anchor': 'middle', 'dominant-baseline': 'central' }); tx.textContent = p.text;
+    const tl = s('text', { x: p.px[0], y: p.px[1], class: 'st__id', 'font-size': L_.fs * 0.78, 'text-anchor': 'middle', 'dominant-baseline': 'central' }); tl.textContent = p.id;
+    g.append(tx, tl); gs.append(g);
+  });
+  svg.append(gs);
   box.append(svg);
   return box;
+}
+// compact list under the hero number: A … E width; on a follow-up previous → now and the change (coloured only if significant)
+function stationList(sh, cr) {
+  const cmp = sh.stationsCmp && sh.cracks[0] === cr && cr.id === sh.firstId ? sh.stationsCmp : null;
+  const rows = cmp ? cmp.stations : (cr.stations || []);
+  if (!rows.length) return null;
+  const ul = h('ul', { class: 'stations', 'aria-label': t('stTitle') });
+  rows.forEach((r) => {
+    const isMax = r.is_max;
+    const id = h('span', { class: `stations__id ${isMax ? 'is-max' : ''}`, title: isMax ? t('stMax') : null }, r.id);
+    let body;
+    if (!cmp) body = [h('strong', null, Wt(r.width_mm))];
+    else if (r.status !== 'ok') body = [h('span', { class: 'muted' }, `${Wt(r.prev_width_mm)} → —`), h('small', { class: 'muted' }, r.reason === 'outside_photo' ? t('stOutside') : t('stNoCrack'))];
+    else body = [h('span', null, `${Wt(r.prev_width_mm)} → `, h('strong', null, Wt(r.width_mm))),
+      h('small', { class: r.significant ? 'is-act' : 'muted' }, `${Wt(r.delta_mm, { sign: true })} · ${r.significant ? t('stSig') : t('stNs')}`)];
+    ul.append(h('li', null, id, h('span', { class: 'stations__v' }, ...body)));
+  });
+  const hint = cmp ? (cmp.registration === 'card_frame_assumed' ? t('stAssumed') : t('stHintCmp')) : t('stHint');
+  return h('div', { class: 'tile stations-box' }, h('p', { class: 'stations__title' }, t('stTitle')), ul, h('p', { class: 'fine' }, hint));
 }
 function chooseCrack(c, sh, cr) {
   const real = findShot(c, sh.id); if (!real) return;
@@ -707,12 +800,13 @@ async function attachTo(draft, x) {
   const sh = lastShot(draft); if (!sh || inflight) return;
   closeSheet('sheet');
   const prev = [...allShots(x)].reverse().find((y) => isMeasured(y) && y.key && Date.now() - y.at < 23 * 3600000);
-  if (sh.key && prev) {
+  const pst = prevStations(x);
+  if (sh.key && Date.now() - sh.at < 23 * 3600000 && (prev || pst)) {
     inflight = true;
     S.run = { mode: 'own', crackId: x.id, phase: 'measuring', photo: await idb.get(sh.img) };
     go('analyze');
     try {
-      const d = await api('/api/inspect', { image: { key: sh.key }, previous: { key: prev.key }, retakes: 0 });
+      const d = await api('/api/inspect', { image: { key: sh.key }, previous: prev ? { key: prev.key } : null, retakes: 0, previous_stations: pst });
       const nsh = await recordShot(x, d, { source: 'upload', key: sh.key });
       await dropImages(draft); data.cracks = data.cracks.filter((y) => y.id !== draft.id); save();
       S.run = { ...S.run, phase: 'done', result: d, shot: nsh };
@@ -842,6 +936,34 @@ function decodeShare(str) {
   } catch { return null; }
 }
 // ------------------------------------------------------------------ PDF report (jsPDF served locally, loaded on demand)
+// the measured photo with the crack and its labelled stations, drawn on a canvas (same layout as the screen)
+async function stationsImage(sh) {
+  const cr = sh.cracks && sh.cracks[0];
+  if (!sh.ovSize || !cr || !cr.outline_px) return null;
+  const src = await idb.get(sh.ph || sh.img); if (!src) return null;
+  const im = new Image(); im.src = src; await im.decode().catch(() => {});
+  const [Wp, Hp] = sh.ovSize; const cv = document.createElement('canvas'); cv.width = Wp; cv.height = Hp;
+  const g = cv.getContext('2d'); g.drawImage(im, 0, 0, Wp, Hp);
+  const lw = Math.max(3, Wp / 260); const ws = cr.outline_w_mm || []; const brk = new Set(cr.outline_breaks || []);
+  g.lineCap = 'round';
+  for (let k = 1; k < cr.outline_px.length; k++) {
+    if (brk.has(k)) continue;
+    const [x1, y1] = cr.outline_px[k - 1]; const [x2, y2] = cr.outline_px[k];
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = lw * 2.4; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    g.strokeStyle = widthColor(((ws[k - 1] ?? 1) + (ws[k] ?? 1)) / 2); g.lineWidth = lw * 1.5; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  }
+  const L_ = stationLayout(sh, cr); const brand = '#FF5A1F';
+  L_.pins.forEach((p) => {
+    const b = p.box; const ex = Math.min(Math.max(p.lx, b.x), b.x + b.w); const ey = b.y + b.h / 2;
+    g.strokeStyle = 'rgba(255,255,255,0.92)'; g.lineWidth = Math.max(2, L_.fs * 0.12); g.beginPath(); g.moveTo(p.px[0], p.px[1]); g.lineTo(ex, ey); g.stroke();
+    g.fillStyle = p.isMax ? brand : 'rgba(12,12,14,0.8)'; g.beginPath(); g.roundRect(b.x, b.y, b.w, b.h, b.h / 2); g.fill();
+    g.fillStyle = '#fff'; g.font = `700 ${L_.fs}px Onest, -apple-system, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.text, b.x + b.w / 2, b.y + b.h / 2);
+    g.fillStyle = p.isMax ? brand : '#fff'; g.strokeStyle = p.isMax ? '#fff' : 'rgba(0,0,0,0.55)'; g.lineWidth = Math.max(2, L_.fs * 0.13);
+    g.beginPath(); g.arc(p.px[0], p.px[1], L_.r, 0, 2 * Math.PI); g.fill(); g.stroke();
+    g.fillStyle = p.isMax ? '#fff' : '#111'; g.font = `800 ${L_.fs * 0.78}px Onest, -apple-system, sans-serif`; g.fillText(p.id, p.px[0], p.px[1]);
+  });
+  return cv.toDataURL('image/jpeg', 0.86);
+}
 function loadScript(src) { return new Promise((ok, ko) => { const x = document.createElement('script'); x.src = src; x.onload = ok; x.onerror = () => ko(new Error('script')); document.head.append(x); }); }
 async function savePdf(c) {
   const btn = $('#pdfBtn') || document.createElement('i'); btn.setAttribute('aria-busy', 'true');
@@ -905,7 +1027,27 @@ async function savePdf(c) {
       if (p) { const w = (CW - 12) / 2; need(w / 1.5 + 50); text(t('beforeAfter'), { size: 12, bold: true, gap: 4 }); const y0 = y; await addImg(p.before, w, M); y = y0; const hh = await addImg(p.after, w, M + w + 12); y = y0 + hh + 4;
         text(`${fmtDate(c.visits[0].at)}  ·  ${fmtDate(baShot.visitAt)}  —  ${t('baCaptionShort')}`, { size: 8.5, color: grey, gap: 12 }); }
     }
-    if (imgShot) { const src = await idb.get(imgShot.cu || imgShot.img); if (src) { need(CW * 0.8 * 0.75 + 30); text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
+    // measurement stations of the latest measured photo: annotated image + table
+    const stShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.cracks[0].stations && x.cracks[0].stations.length);
+    const stImg = stShot ? await stationsImage(stShot).catch(() => null) : null;
+    if (stShot) {
+      const cr0 = stShot.cracks[0]; const cmp = stShot.stationsCmp && cr0.id === stShot.firstId ? stShot.stationsCmp : null;
+      text(t('pdfStations'), { size: 12, bold: true, gap: 4 });
+      if (stImg) { const w = Math.min(CW * 0.62, 300); const hh = await addImg(stImg, w); y += hh + 6; }
+      const cols = t('pdfStationsCols'); const xs = [M, M + 60, M + 170, M + 290];
+      need(16); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...grey); cols.forEach((k, i) => doc.text(clean(k), xs[i], y + 10)); y += 16;
+      const rows = cmp ? cmp.stations : cr0.stations.map((x) => ({ id: x.id, is_max: x.is_max, status: 'first', width_mm: x.width_mm }));
+      rows.forEach((r) => {
+        need(15); doc.setFont('helvetica', r.is_max ? 'bold' : 'normal'); doc.setFontSize(10); doc.setTextColor(28, 28, 30);
+        const cells = r.status === 'first' ? [`${r.id}${r.is_max ? ' (max)' : ''}`, '—', Wt(r.width_mm), '—']
+          : r.status === 'ok' ? [`${r.id}${r.is_max ? ' (max)' : ''}`, Wt(r.prev_width_mm), Wt(r.width_mm), `${Wt(r.delta_mm, { sign: true })} ${r.significant ? t('stSig') : t('stNs')}`]
+            : [r.id, Wt(r.prev_width_mm), '—', r.reason === 'outside_photo' ? t('stOutside') : t('stNoCrack')];
+        cells.forEach((v, i) => { if (i === 3 && r.significant) doc.setTextColor(192, 38, 43); doc.text(clean(v), xs[i], y + 10); });
+        y += 15;
+      });
+      y += 4; text(cmp ? (cmp.registration === 'card_frame_assumed' ? t('stAssumed') : t('stHintCmp')) : t('stHint'), { size: 8.5, color: grey, gap: 12 });
+    }
+    if (imgShot && !stImg) { const src = await idb.get(imgShot.cu || imgShot.img); if (src) { need(CW * 0.8 * 0.75 + 30); text(t('latestPhoto'), { size: 12, bold: true, gap: 4 }); const hh = await addImg(src, CW * 0.8); y += hh + 4; text(t('caption'), { size: 8.5, color: grey, gap: 12 }); } }
     // inspector + ticket
     if (ls) {
       text(t('pdfInspector'), { size: 12, bold: true, gap: 4 });
