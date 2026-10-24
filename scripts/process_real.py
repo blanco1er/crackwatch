@@ -5,6 +5,7 @@ Folder layout (names are fixed; any subset may be present; .jpg .jpeg .png .heic
   <dir>/mire-v2/        photos of chart v2 (bars 3, 5, 7 wider; bars 2, 6 longer) = simulated second visit
   <dir>/fissure-A/      ~10 photos of one real crack with the A6 card taped next to it (repeatability)
   <dir>/fissure-B/      same for a second crack (any folder whose name starts with "fissure-")
+  <dir>/v2-carte-a-cote/<series>/  more real cracks, card taped NEXT to the crack (each sub-folder = one series)
   <dir>/regle.txt       optional: what the 50 mm ruler of the printed card measured, e.g. "49.6"
 
   python scripts/process_real.py --dir ../photos-reelles --out eval_real
@@ -180,7 +181,7 @@ def _cv(v):
 def e3(folder, tmp, overlays, scale_fix, cell_mm=10.0):
     """Repeatability on one real crack. Three per-photo widths, all defined identically for every photo:
     - `median_mm`: the longest detected crack (what the app reports first; framing-dependent);
-    - `zone_median_mm`: all crack points in the monitoring zone (card sheet + 40 mm, card frame);
+    - `zone_median_mm`: all crack points in the monitoring zone (card sheet + 10 cm, card frame);
     - location-matched: the zone cut into 10 mm cells (card frame); per photo, the median over the cells
       that every measured photo sees, so each photo is scored on the same stretches of crack."""
     rows, cells = [], []
@@ -269,7 +270,9 @@ def main():
             lines, pairs, errs = e4_real(r1, r2, m1, m2)
             md += ["## E4 réel — deux « visites » de la mire (v1 puis v2)", ""] + lines + [""]
             results["e4_real"] = {"pairs": pairs, "abs_errors_mm": errs}
-        for folder in sorted(glob.glob(os.path.join(a.dir, "fissure-*"))):
+        # E3 series: card taped ON the crack (fissure-*, 23 Oct) and card NEXT to the crack (v2-carte-a-cote/*, 24 Oct:
+        # printed card only, or printed card + bank card; here the printed card is the reference in every photo)
+        for folder in sorted(glob.glob(os.path.join(a.dir, "fissure-*"))) + sorted(glob.glob(os.path.join(a.dir, "v2-carte-a-cote", "*"))):
             if not list_photos(folder):
                 continue
             rows, summ = e3(folder, tmp, overlays, scale_fix)
@@ -280,7 +283,7 @@ def main():
                    f"- Largeur médiane (médiane des photos, fissure la plus longue) : {f(summ['median_mm'], '.3f', ' mm')}",
                    f"- Coefficient de variation entre photos :",
                    f"  - fissure la plus longue de chaque photo (ancien indicateur) : médiane {pct(summ['cv_median'])}, max {pct(summ['cv_max'])}",
-                   f"  - zone de suivi (feuille de la carte + 40 mm, repère carte, même zone pour toutes les photos) : médiane {pct(summ['cv_zone_median'])}, max {pct(summ['cv_zone_max'])}",
+                   f"  - zone de suivi (feuille de la carte + 10 cm, repère carte, même zone pour toutes les photos) : médiane {pct(summ['cv_zone_median'])}, max {pct(summ['cv_zone_max'])}",
                    f"  - mêmes tronçons (cases de 10 mm de la zone vues par toutes les photos : {summ['n_common_cells']}) : médiane {pct(summ['cv_matched'])}",
                    f"  - analyse, pas une règle de l'app : photos vues à <= 10° en travers de la fissure ({summ['n_frontal']}) : zone {pct(summ['cv_zone_median_frontal'])}, mêmes tronçons {pct(summ['cv_matched_frontal'])}",
                    f"- Décisions de l'agent (règles) : {', '.join(f'{k} {n}' for k, n in summ['decisions'].items())}", "",

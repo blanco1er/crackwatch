@@ -1,6 +1,6 @@
 # Carte bancaire et carte imprimée sur la même photo (vraies photos)
 
-Généré par `scripts/eval_idcard_twocards.py` le 2026-10-24 17:22 ; photos réduites à 4032 px comme le service ; focale lue dans l'EXIF. La carte imprimée (ChArUco) sert de référence.
+Généré par `scripts/eval_idcard_twocards.py` le 2026-10-24 17:40 ; photos réduites à 4032 px comme le service ; focale lue dans l'EXIF. La carte imprimée (ChArUco) sert de référence.
 
 - Photos : 13 ; carte bancaire acceptée : 13 ; fissure mesurée par les deux : 13
 - **Largeur aux mêmes points de la fissure**, carte / ChArUco : médiane -1.9 %, de -3.1 à +1.3 % ; dans ±2 σ d'échelle annoncés : 13/13
