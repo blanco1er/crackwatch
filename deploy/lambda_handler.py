@@ -24,10 +24,23 @@ def _planner(allow_call):
     return NovaConversePlanner(client=_bedrock, model=MODEL_ID, allow_call=allow_call)
 
 
-app = App(DynamoStore(os.environ["TABLE"]), S3Blobs(os.environ["BUCKET"]), _planner)
+_lambda = boto3.client("lambda", config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 2}))
+
+
+def _dispatch(job_id):
+    """Run an accepted inspection in the background: this same function, invoked asynchronously (no 29 s
+    API Gateway limit; function timeout 120 s). The HTTP request has already answered {job_id}."""
+    _lambda.invoke(FunctionName=os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "crackwatch-api"), InvocationType="Event",
+                   Payload=json.dumps({"cw_job": job_id}).encode())
+
+
+app = App(DynamoStore(os.environ["TABLE"]), S3Blobs(os.environ["BUCKET"]), _planner, dispatcher=_dispatch)
 
 
 def handler(event, context):
+    if "cw_job" in event:                    # background run of POST /api/inspect (async self-invocation)
+        app.run_job(event["cw_job"])
+        return {"ok": True}
     rc = event.get("requestContext", {}).get("http", {})
     body = event.get("body") or ""
     raw = base64.b64decode(body) if event.get("isBase64Encoded") else body.encode()

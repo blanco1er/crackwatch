@@ -33,7 +33,7 @@ export const T = {
     errTitle: 'The measurement could not finish', errGeneric: 'Nothing was saved. Check your connection and try again.',
     errExpired: 'That photo is no longer on the server (photos are deleted after 24 hours). Take a new one.',
     errSmall: 'This image is too small. Use the full-size photo.', errNotImage: 'This file is not a photo we can read. Use a JPEG or PNG.',
-    tryAgain: 'Try again', tooBig: 'This photo is larger than 15 MB. Please use a smaller one.',
+    tryAgain: 'Try again', tooBig: 'This file is too large to be a photo (over 60 MB).', errTimeout: 'The analysis is taking too long. Please try again in a moment.',
     overlayAlt: 'Photo with the crack highlighted by width', photoAlt: 'Photo being measured',
     // retake reasons, in plain words, each with its fix
     r_blur: 'The photo is blurry.', f_blur: 'Hold the phone still and tap the crack to focus.',
@@ -142,7 +142,7 @@ export const T = {
     errTitle: 'La mesure n’a pas pu aboutir', errGeneric: 'Rien n’a été enregistré. Vérifiez la connexion et réessayez.',
     errExpired: 'Cette photo n’est plus sur le serveur (les photos sont effacées au bout de 24 heures). Prenez-en une nouvelle.',
     errSmall: 'Cette image est trop petite. Utilisez la photo en taille réelle.', errNotImage: 'Ce fichier n’est pas une photo lisible. Utilisez un JPEG ou un PNG.',
-    tryAgain: 'Réessayer', tooBig: 'Cette photo dépasse 15 Mo. Choisissez-en une plus légère.',
+    tryAgain: 'Réessayer', tooBig: 'Ce fichier est trop lourd pour une photo (plus de 60 Mo).', errTimeout: 'L’analyse prend trop de temps. Réessayez dans un instant.',
     overlayAlt: 'Photo avec la fissure surlignée selon sa largeur', photoAlt: 'Photo en cours de mesure',
     r_blur: 'La photo est floue.', f_blur: 'Tenez le téléphone immobile et touchez la fissure pour faire la mise au point.',
     r_card_not_found: 'On ne voit pas la carte.', f_card_not_found: 'Mettez toute la carte dans la photo, à côté de la fissure.',

@@ -141,6 +141,51 @@ def test_nova_planner_paths():
     assert fb.calls == 0 and "budget" in a.planner
 
 
+class MemBlobs(FakeBlobs):
+    def __init__(self):
+        self.d = {}
+
+    def get(self, key):
+        return self.d[key]
+
+    def put(self, key, data):
+        self.d[key] = data
+
+    def delete(self, key):
+        self.d.pop(key, None)
+
+
+def test_job_flow():
+    """Async inspection: POST answers {job_id} at once, GET says pending until the background run is done, then
+    returns the very same result as the inline route; errors keep their code and HTTP status."""
+    queued = []
+    a = api.App(MemStore(), MemBlobs(), log=lambda *_: None, dispatcher=queued.append)
+    r = a.handle("POST", "/api/inspect", {"user-agent": UA}, json.dumps({"image": {"sample": "close"}}).encode(), {}, "9.9.9.9")
+    assert r.status == 202
+    job = json.loads(r.body)["job_id"]
+    assert queued == [job] and api.JOB_RE.fullmatch(job)
+    assert json.loads(a.handle("GET", f"/api/job/{job}", {}, b"", {}, "1").body) == {"status": "pending", "job_id": job}
+    a.run_job(job)
+    a.run_job(job)                                   # a duplicated event does not run it twice
+    r = a.handle("GET", f"/api/job/{job}", {}, b"", {}, "1")
+    d = json.loads(r.body)
+    assert r.status == 200 and d["measurement"]["status"] == "ok" and d["source"] == "sample:close"
+    inline = api.App(MemStore(), MemBlobs(), log=lambda *_: None)
+    d2 = json.loads(inline.handle("POST", "/api/inspect", {"user-agent": UA}, json.dumps({"image": {"sample": "close"}}).encode(), {}, "9.9.9.9").body)
+    assert d2["measurement"]["cracks"][0]["width_mm"] == d["measurement"]["cracks"][0]["width_mm"]
+    # counted once (at acceptance), not again by the background run
+    assert a.store.items[(f"USAGE#{api._day()}", "inspections")]["n"] == 1
+    # an error (expired upload) comes back with its code and status
+    bad = json.loads(a.handle("POST", "/api/inspect", {}, json.dumps({"image": {"key": "uploads/2026-10-24/" + "0" * 32 + ".jpg"}}).encode(), {}, "1").body)["job_id"]
+    a.run_job(bad)
+    r = a.handle("GET", f"/api/job/{bad}", {}, b"", {}, "1")
+    assert r.status == 400 and json.loads(r.body)["error"] == "image_unavailable"
+    assert a.handle("GET", "/api/job/zzz", {}, b"", {}, "1").status == 404
+    # a job that never finished is reported, not polled forever
+    a.store.put("JOB#" + "a" * 24, "META", {"status": "running", "at": 0}, ttl_days=1)
+    assert json.loads(a.handle("GET", "/api/job/" + "a" * 24, {}, b"", {}, "1").body)["error"] == "analysis_timeout"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

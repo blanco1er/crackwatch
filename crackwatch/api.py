@@ -6,7 +6,10 @@ GET  /samples/<file>           synthetic sample photos + their ground truth (sam
 GET  /card.pdf                 printable A6 ChArUco card (print at 100 %)
 GET  /api/health
 POST /api/upload-url           presigned S3 POST for one photo (private bucket, deleted after 1 day)
-POST /api/inspect              measure + agent loop -> decision, trace, overlay
+POST /api/inspect              measure + agent loop -> decision, trace, overlay. With a dispatcher (AWS: the Lambda
+                               invokes itself asynchronously) it answers {job_id} at once, the work runs in the
+                               background (up to 120 s, never against API Gateway's 29 s), and the result is read with
+GET  /api/job/<id>             {status: "pending"} until done, then the inspection result (or its error, same codes)
 POST /api/tickets/<id>/decision  human approval / rejection of a proposed ticket
 POST /api/visit                anonymous visit event (see visits.py)
 GET  /internal?k=...           owner-only: marks this browser as internal (not counted)
@@ -21,6 +24,7 @@ import mimetypes
 import os
 import re
 import secrets
+import threading
 import time
 import traceback
 
@@ -86,12 +90,22 @@ def _day():
     return time.strftime("%Y-%m-%d", time.gmtime())
 
 
+JOB_RE = re.compile(r"^[0-9a-f]{24}$")
+JOB_STALE_S = 150          # a job still running after this (worker timeout 120 s) has died: reported as an error
+
+
 class App:
-    def __init__(self, store, blobs, planner_factory=None, log=print):
+    def __init__(self, store, blobs, planner_factory=None, log=print, dispatcher=None):
+        """`dispatcher(job_id)`: start the background run of a stored job (AWS: async self-invocation). None =
+        run inspections inline in the request (local server, tests)."""
         self.store, self.blobs, self.planner_factory, self.log = store, blobs, planner_factory, log
+        self.dispatcher = dispatcher
+        self._tl = threading.local()       # per-thread: inside a background job run (local --jobs server)
 
     # ------------------------------------------------------------------ guards
     def _count(self, name, limit, visitor=None):
+        if getattr(self._tl, "in_job", False) and name.startswith("inspections"):
+            return True                # a background job was already counted when it was accepted
         sk = f"{name}#{visitor}" if visitor else name
         n = self.store.incr(f"USAGE#{_day()}", sk, 1, ttl_days=40)
         return n <= limit
@@ -142,6 +156,9 @@ class App:
                 return Response(302, b"", "text/plain", {"location": "/", "set-cookie":
                                 f"cw_internal={visits.internal_key()}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax"})
             return err("not_found", 404)
+        m = re.fullmatch(r"/api/job/([0-9a-f]+)", path) if method == "GET" else None
+        if m:
+            return self._job(m.group(1))
         if method != "POST":
             return err("not_found", 404)
         try:
@@ -157,7 +174,7 @@ class App:
         if path == "/api/local-upload" and hasattr(self.blobs, "accept_upload"):
             return jresp(self.blobs.accept_upload(h.get("content-type", ""), body))
         if path == "/api/inspect":
-            return self._inspect(data, h, ip)
+            return self._enqueue(data, h, ip) if self.dispatcher else self._inspect(data, h, ip)
         m = re.fullmatch(r"/api/tickets/([0-9a-f]{10})/decision", path)
         if m:
             return self._decide(m.group(1), data, h, ip)
@@ -249,6 +266,79 @@ class App:
         visits.log_visit(self.store, h, ip, {"type": "inspect", "sample": cur_src.removeprefix("sample:"),
                                              "action": names[-1], "planner": planners[-1] if planners else ""})
         return jresp(out)
+
+    # ------------------------------------------------------------------ background jobs
+    def _enqueue(self, data, h, ip):
+        """Count the request against the limits, store it, start the background run, answer at once."""
+        vid = visits.visitor_id(ip, h.get("user-agent", ""))
+        if not isinstance(data, dict) or not isinstance(data.get("image"), dict):
+            return err("bad_image_ref", 400)
+        if not self._count("inspections", LIMITS["inspections_per_day"]):
+            return err("daily_limit", 429, "The public demo reached its daily limit. Please try again tomorrow.")
+        if not self._count("inspections_v", LIMITS["inspections_per_visitor_day"], vid):
+            return err("visitor_limit", 429, "You reached the per-visitor daily limit of the public demo.")
+        job = secrets.token_hex(12)
+        self.store.put(f"JOB#{job}", "META", {"status": "pending", "at": time.time(), "request": json.dumps(data)[:20000],
+                                              "ip": ip, "ua": h.get("user-agent", "")[:300], "referer": h.get("referer", "")[:300]},
+                       ttl_days=1)
+        try:
+            self.dispatcher(job)
+        except Exception as e:
+            self.log(json.dumps({"event": "dispatch_failed", "error": type(e).__name__, "detail": str(e)[:300]}))
+            return err("busy", 503, "Could not start the analysis. Please try again.")
+        return jresp({"job_id": job, "status": "pending"}, 202)
+
+    def run_job(self, job):
+        """Background run of a stored job: the same handler as the inline route; the response (result or error,
+        with its HTTP status) is kept for GET /api/job/<id> (result JSON in the uploads bucket, 1-day expiry)."""
+        if not JOB_RE.fullmatch(str(job)):
+            return
+        row = self.store.get(f"JOB#{job}", "META")
+        if not row or row.get("status") != "pending":
+            return                                   # unknown, or already taken (a retried event)
+        self.store.put(f"JOB#{job}", "META", dict(row, status="running", started=time.time()), ttl_days=1)
+        h = {"user-agent": row.get("ua", ""), "referer": row.get("referer", "")}
+        self._tl.in_job = True
+        try:
+            r = self._run_inspect(json.loads(row["request"]), h, row.get("ip", ""))
+        finally:
+            self._tl.in_job = False
+        key = f"uploads/jobs/{job}.json"
+        try:
+            self.blobs.put(key, r.body)
+            self.store.put(f"JOB#{job}", "META", {"status": "done" if r.status == 200 else "error", "http": r.status,
+                                                  "at": row.get("at"), "done_at": time.time(), "key": key}, ttl_days=1)
+        except Exception as e:
+            self.log(json.dumps({"event": "job_store_failed", "job": job, "error": type(e).__name__}))
+            self.store.put(f"JOB#{job}", "META", {"status": "error", "http": 500, "at": row.get("at"),
+                                                  "error": "internal_error"}, ttl_days=1)
+
+    def _run_inspect(self, data, h, ip):
+        try:
+            return self._inspect(data, h, ip)
+        except Exception as e:   # same contract as handle(): never leak a stack trace
+            self.log(json.dumps({"event": "error", "path": "job", "error": type(e).__name__, "detail": str(e)[:300],
+                                 "trace": traceback.format_exc()[-1200:]}))
+            return err("internal_error", 500, type(e).__name__)
+
+    def _job(self, job):
+        if not JOB_RE.fullmatch(job):
+            return err("job_not_found", 404)
+        row = self.store.get(f"JOB#{job}", "META")
+        if not row:
+            return err("job_not_found", 404)
+        st = row.get("status")
+        if st in ("pending", "running"):
+            if time.time() - float(row.get("at") or 0) > JOB_STALE_S:
+                return err("analysis_timeout", 504, "The analysis did not finish in time.")
+            return jresp({"status": "pending", "job_id": job})
+        if row.get("key"):
+            try:
+                body = self.blobs.get(row["key"])
+            except Exception:
+                return err("job_expired", 410)
+            return Response(int(row.get("http") or 200), body, "application/json", {"cache-control": "no-store"})
+        return err(row.get("error") or "internal_error", int(row.get("http") or 500))
 
     def _decide(self, tid, data, h, ip):
         decision = data.get("decision")

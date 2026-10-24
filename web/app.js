@@ -149,6 +149,63 @@ async function api(path, body) {
   if (!r.ok) { const e = new Error((d && d.detail) || (d && d.error) || `HTTP ${r.status}`); e.code = (d && d.error) || `http_${r.status}`; e.status = r.status; throw e; }
   return d;
 }
+// POST /api/inspect answers {job_id} at once on AWS (the measurement runs in the background, no 29 s gateway
+// limit); the result is polled every second, with a 90 s cap. The local server answers the result directly.
+const POLL_MS = 1000, JOB_CAP_MS = 90000;
+async function inspectApi(body) {
+  const d = await api('/api/inspect', body);
+  if (!d || !d.job_id || d.inspection_id) return d;
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, POLL_MS));
+    if (Date.now() - t0 > JOB_CAP_MS) throw Object.assign(new Error('analysis_timeout'), { code: 'analysis_timeout' });
+    let r, j = null;
+    try { r = await fetch(`/api/job/${d.job_id}`, { cache: 'no-store' }); } catch { continue; }   // brief network loss: keep polling
+    try { j = await r.json(); } catch { /* not json */ }
+    if (!r.ok) { const e = new Error((j && j.detail) || (j && j.error) || `HTTP ${r.status}`); e.code = (j && j.error) || `http_${r.status}`; e.status = r.status; throw e; }
+    if (j && j.status === 'pending') continue;
+    return j;
+  }
+}
+// EXIF FocalLengthIn35mmFilm (tag 0xA405) of the ORIGINAL photo (JPEG or HEIC): the wallet-card reference needs it
+// and a re-encoded copy has no EXIF. Finds the TIFF block after "Exif\0\0" and reads IFD0 -> Exif IFD. null if absent.
+function exifFocal35(buf) {
+  const u = new Uint8Array(buf); const n = u.length;
+  for (let i = 0; i + 14 < n; i++) {
+    if (u[i] !== 0x45 || u[i + 1] !== 0x78 || u[i + 2] !== 0x69 || u[i + 3] !== 0x66 || u[i + 4] !== 0 || u[i + 5] !== 0) continue;
+    const o = i + 6; const le = u[o] === 0x49 && u[o + 1] === 0x49; if (!le && !(u[o] === 0x4d && u[o + 1] === 0x4d)) continue;
+    const v = new DataView(buf, o); const L = n - o;
+    const u16 = (p) => (p + 2 <= L ? v.getUint16(p, le) : -1); const u32 = (p) => (p + 4 <= L ? v.getUint32(p, le) : -1);
+    const find = (ifd, tag) => { const k = u16(ifd); if (k < 0 || k > 512) return null; for (let e = 0; e < k; e++) { const q = ifd + 2 + 12 * e; if (u16(q) === tag) return q; } return null; };
+    const ex = find(u32(4), 0x8769); if (ex == null) return null;
+    const f = find(u32(ex + 8), 0xa405); if (f == null) return null;
+    const val = u16(f + 2) === 3 ? u16(f + 8) : u32(f + 8);
+    return val >= 10 && val <= 200 ? val : null;
+  }
+  return null;
+}
+// Any photo is accepted: decoded with its orientation, brought to the server's 4032 px long side and re-encoded
+// (iPhone 48 MP shots are 15-25 MB). Only absurd files (> 60 MB) are refused.
+const MAX_SIDE = 4032, HARD_CAP = 60 * 1024 * 1024, UPLOAD_CAP = 15 * 1024 * 1024;
+async function preparePhoto(file) {
+  let focal = null;
+  try { focal = exifFocal35(await file.arrayBuffer()); } catch { /* unreadable: no focal */ }
+  let bmp = null;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { /* fall back to <img> */ }
+  if (!bmp) {
+    try { const im = new Image(); const url = URL.createObjectURL(file); im.src = url; await im.decode(); bmp = im; setTimeout(() => URL.revokeObjectURL(url), 0); } catch { bmp = null; }
+  }
+  if (!bmp) { if (file.size <= UPLOAD_CAP) return { file, focal }; throw Object.assign(new Error('not_an_image'), { code: 'not_an_image' }); }
+  const w = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+  const k = Math.min(1, MAX_SIDE / Math.max(w, h0));
+  if (k === 1 && file.type === 'image/jpeg' && file.size <= UPLOAD_CAP) { if (bmp.close) bmp.close(); return { file, focal }; }
+  const cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(h0 * k);
+  const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, cv.width, cv.height); if (bmp.close) bmp.close();
+  const blob = await new Promise((ok) => cv.toBlob(ok, 'image/jpeg', 0.92));
+  cv.width = cv.height = 0;
+  if (!blob) throw Object.assign(new Error('not_an_image'), { code: 'not_an_image' });
+  return { file: new File([blob], 'photo.jpg', { type: 'image/jpeg' }), focal };
+}
 const screenClass = () => (innerWidth < 700 ? 'compact' : innerWidth < 1000 ? 'regular' : 'large');
 function visit(type, extra = {}) {
   try { fetch('/api/visit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, lang, screen: screenClass(), ...extra }), keepalive: type === 'card' }).then((r) => r.text()).catch(() => {}); } catch { /* ignore */ }
@@ -228,7 +285,7 @@ async function startExample() {
   go('analyze');
   visit('sample', { sample: 'real' });
   try {
-    const d = await api('/api/inspect', { image: { sample: 'real' }, previous: null, retakes: 0 });
+    const d = await inspectApi({ image: { sample: 'real' }, previous: null, retakes: 0 });
     warm = true;
     const sh = await recordShot(c, d, { source: 'sample:real', at: REAL_AT, visitIndex: 0 });
     S.run = { ...S.run, phase: 'done', result: d, shot: sh };
@@ -267,7 +324,7 @@ async function runSimStep(i) {
   renderAnalyze();
   visit('sample', { sample: st.id });
   try {
-    const d = await api('/api/inspect', { image: { sample: st.id }, previous: st.previous ? { sample: st.previous } : null, retakes: st.retakes });
+    const d = await inspectApi({ image: { sample: st.id }, previous: st.previous ? { sample: st.previous } : null, retakes: st.retakes });
     warm = true;
     const at = st.visit === 0 ? c.visits[0].at + i * 3 * 60000 : c.visits[1].at;
     const sh = await recordShot(c, d, { source: `sample:${st.id}`, at, visitIndex: st.visit, truth: truth?.samples?.[st.id] || null });
@@ -325,15 +382,16 @@ function startMeasure(crackId = null) {
 function pickFile(crackId = null) { S.pending = crackId; const f = $('#fileInput'); f.value = ''; f.click(); }
 async function measureOwn(file) {
   if (inflight) return;
-  if (file.size > 15 * 1024 * 1024) { toast({ title: t('tooBig'), tone: 'critical' }); return; }
+  if (file.size > HARD_CAP) { toast({ title: t('tooBig'), tone: 'critical' }); return; }
   inflight = true;
   let c = S.pending && crackById(S.pending);
   if (!c) { c = { id: uid(), tracked: false, name: '', place: '', createdAt: Date.now(), nextVisitAt: null, visits: [] }; data.cracks.push(c); save(); }
   S.run = { mode: 'own', crackId: c.id, phase: 'measuring', uploading: true, photo: URL.createObjectURL(file), file };
   go('analyze');
   try {
+    const prep = await preparePhoto(file);
     const up = await api('/api/upload-url', {});
-    const form = new FormData(); Object.entries(up.fields).forEach(([k, v]) => form.append(k, v)); form.append('file', file);
+    const form = new FormData(); Object.entries(up.fields).forEach(([k, v]) => form.append(k, v)); form.append('file', prep.file);
     const r = await fetch(up.url, { method: 'POST', body: form });
     if (!r.ok) throw Object.assign(new Error('upload_failed'), { code: 'upload_failed' });
     visit('upload');
@@ -343,7 +401,7 @@ async function measureOwn(file) {
     const prevShot = [...allShots(c)].reverse().find((x) => isMeasured(x) && x.key && Date.now() - x.at < 23 * 3600000 && !(sameVisit && x.visitId === lv.id));
     const retakes = sameVisit ? lv.shots.filter((x) => ['request_retake', 'request_closer_photo'].includes(x.decision?.name)).length : 0;
     const pst = sameVisit ? null : prevStations(c);
-    const d = await api('/api/inspect', { image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst });
+    const d = await inspectApi({ image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst, focal_35mm: prep.focal });
     warm = true;
     const sh = await recordShot(c, d, { source: 'upload', key: up.key });
     S.run = { ...S.run, phase: 'done', result: d, shot: sh };
@@ -481,7 +539,7 @@ function renderAnalyze() {
   const acts = h('div', { class: 'cta' });
   if (R.phase === 'error') {
     const e = R.error;
-    const msg = !navigator.onLine || e.name === 'TypeError' ? t('errOffline') : e.code === 'daily_limit' || e.code === 'visitor_limit' ? e.message : e.code === 'image_unavailable' ? t('errExpired') : e.code === 'image_too_small' ? t('errSmall') : e.code === 'not_an_image' ? t('errNotImage') : t('errGeneric');
+    const msg = !navigator.onLine || e.name === 'TypeError' ? t('errOffline') : e.code === 'daily_limit' || e.code === 'visitor_limit' ? e.message : e.code === 'image_unavailable' ? t('errExpired') : e.code === 'image_too_small' ? t('errSmall') : e.code === 'not_an_image' ? t('errNotImage') : e.code === 'analysis_timeout' ? t('errTimeout') : t('errGeneric');
     root.append(h('div', { class: 'note note--watch', role: 'alert' }, h('strong', null, t('errTitle')), h('p', null, msg)));
     acts.append(h('button', { class: 'btn btn--primary', type: 'button', onclick: () => (sim ? runSimStep(R.step) : ex ? startExample() : R.file ? measureOwn(R.file) : startMeasure(R.crackId)) }, icon('retry'), h('span', null, t('tryAgain'))));
   }
@@ -808,7 +866,7 @@ async function attachTo(draft, x) {
     S.run = { mode: 'own', crackId: x.id, phase: 'measuring', photo: await idb.get(sh.img) };
     go('analyze');
     try {
-      const d = await api('/api/inspect', { image: { key: sh.key }, previous: prev ? { key: prev.key } : null, retakes: 0, previous_stations: pst });
+      const d = await inspectApi({ image: { key: sh.key }, previous: prev ? { key: prev.key } : null, retakes: 0, previous_stations: pst });
       const nsh = await recordShot(x, d, { source: 'upload', key: sh.key });
       await dropImages(draft); data.cracks = data.cracks.filter((y) => y.id !== draft.id); save();
       S.run = { ...S.run, phase: 'done', result: d, shot: nsh };
