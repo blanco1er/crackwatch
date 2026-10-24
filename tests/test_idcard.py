@@ -186,6 +186,22 @@ def test_returned_images_are_redacted():
     assert _hf_energy(ov, box) < 0.1 * _hf_energy(raw, box)
 
 
+def test_bank_card_redacted_when_printed_card_is_the_reference():
+    """A bank card next to a printed ChArUco card must be blurred too, although the ChArUco measured the scale."""
+    from types import SimpleNamespace
+    from crackwatch.card import CARD_A6
+    from crackwatch.service import redact_cards
+    sc, det, rep = _ok_scene()
+    img = sc["img_idcard"]
+    # stand-in for a ChArUco result: its sheet maps to a small patch in the image corner, away from the bank card
+    H = np.array([[0.5, 0, 5], [0, 0.5, 5], [0, 0, 1]], float)
+    res = SimpleNamespace(debug={"card": SimpleNamespace(spec=CARD_A6, H_img_from_board=H)})
+    out = redact_cards(img, res)
+    x0, y0, x1, y1 = sc["digits_box_card_mm"]
+    box = apply_h(sc["H_img_from_card_face"], [(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+    assert _hf_energy(out, box) < 0.1 * _hf_energy(img, box)
+
+
 class _MemBlobs:
     def __init__(self):
         self.d = {}

@@ -13,7 +13,7 @@ import numpy as np
 
 from .agent import AgentState, RulePlanner, run_agent
 from .change import compare
-from .idcard import redact_reference
+from .idcard import IdCardDetection, detect_idcard, redact, redact_polys, redact_reference
 from .measure import apply_h, measure_image
 from .stations import as_comparison, clean_stations, measure_at_stations
 
@@ -216,6 +216,27 @@ def add_outlines(res, shape) -> None:
             cr["outline_breaks"] = breaks
 
 
+def redact_cards(bgr: np.ndarray, res, focal_px=None) -> np.ndarray:
+    """Every bank / ID-1 card in the photo is blurred before any image is returned or stored, WHATEVER reference
+    measured the scale: when the printed ChArUco card is the reference, a wallet card lying next to it would
+    otherwise stay readable. The ID-1 detector runs for redaction only (the printed sheet is hidden from it)."""
+    out = redact_reference(bgr, res)
+    dbg = getattr(res, "debug", None) or {}
+    card = dbg.get("card")
+    if isinstance(card, IdCardDetection) or dbg.get("redact_polys_img"):
+        return out                                  # the wallet card itself was the reference: already redacted
+    excl = None
+    if card is not None:
+        x0, y0, x1, y1 = card.spec.paper_rect_in_board_frame()
+        excl = [apply_h(card.H_img_from_board, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)])]
+    det, rep = detect_idcard(bgr, focal_px=focal_px, exclude_polys=excl)
+    if det is not None:
+        return redact(out, det)
+    if rep is not None and rep.redact_polys_img:
+        return redact_polys(out, rep.redact_polys_img)
+    return out
+
+
 def card_outline_px(res, shape):
     """The reference card's sheet in overlay pixels (the app keeps station labels off it)."""
     card = (getattr(res, "debug", None) or {}).get("card")
@@ -275,7 +296,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
     res = measure_image(current, keep_debug=True, reference=reference, focal_px=f_px)
     add_outlines(res, current.shape)
     raw = current
-    current = redact_reference(current, res)       # wallet card numbers never leave in a returned image
+    current = redact_cards(current, res, f_px)     # wallet card numbers never leave in a returned image
     wallet_seen = current is not raw               # a wallet card was found (used or rejected): redacted copy differs
     timings = {"measure_ms": round(1000 * (time.time() - t0))}
     obs = res.to_json()
@@ -317,7 +338,7 @@ def inspect(current: np.ndarray, previous: np.ndarray | None = None, *, retakes:
         out["comparison"] = _round({k: v for k, v in st.comparison.items() if k != "T_board1_from_board2"})
         out["previous_measurement"] = public_measurement(prev)
         if st.comparison.get("status") == "ok":
-            out["before_after"] = render_before_after(redact_reference(previous, prev), prev, current, res,
+            out["before_after"] = render_before_after(redact_cards(previous, prev), prev, current, res,
                                                       st.comparison["T_board1_from_board2"])
         return obs
 

@@ -404,7 +404,10 @@ async function measureOwn(file) {
     const d = await inspectApi({ image: { key: up.key }, previous: prevShot ? { key: prevShot.key } : null, retakes, previous_stations: pst, focal_35mm: prep.focal });
     warm = true;
     const sh = await recordShot(c, d, { source: 'upload', key: up.key });
-    S.run = { ...S.run, phase: 'done', result: d, shot: sh };
+    // from now on only the server's images are shown (a bank card in the photo is blurred there); the local,
+    // unredacted photo is released and was never stored
+    if (S.run.photo && S.run.photo.startsWith('blob:')) URL.revokeObjectURL(S.run.photo);
+    S.run = { ...S.run, phase: 'done', result: d, shot: sh, photo: null, file: null };
   } catch (e) { S.run = { ...S.run, phase: 'error', error: e, uploading: false }; }
   inflight = false;
   if (S.view === 'analyze') renderAnalyze();
