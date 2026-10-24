@@ -208,6 +208,7 @@ class App:
         raise ValueError("bad_image_ref")
 
     def _inspect(self, data, h, ip):
+        from .exif import focal_35mm as exif_focal_35mm
         from .service import decode_image, inspect
         vid = visits.visitor_id(ip, h.get("user-agent", ""))
         if not self._count("inspections", LIMITS["inspections_per_day"]):
@@ -232,7 +233,8 @@ class App:
         planner = self.planner_factory(self.llm_allowed) if self.planner_factory else None
         ref = data.get("reference") if data.get("reference") in ("auto", "charuco", "idcard") else "auto"
         out = inspect(cur, prev, retakes=min(int(data.get("retakes") or 0), 5), planner=planner, reference=ref,
-                      focal_35mm=data.get("focal_35mm"), previous_stations=data.get("previous_stations"))
+                      focal_35mm=data.get("focal_35mm") or exif_focal_35mm(cur_bytes),
+                      previous_stations=data.get("previous_stations"))
         out["source"] = cur_src
         redacted = out.pop("_redacted_jpeg", None)
         if redacted is not None and cur_src == "upload":

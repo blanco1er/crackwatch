@@ -17,6 +17,7 @@ const STR = {
     aim: 'Aim the centre at the crack', level: 'Level', levelEst: 'estimated from the phone', dark: 'Too dark — turn on the light',
     darkNoTorch: 'Too dark — find more light', great: 'Great — hold still…',
     seenCharuco: 'CrackWatch card found', seenWallet: 'Bank-card-size card found',
+    pressWallet: 'Press the centre of the card with one fingertip',
     placeSub: 'Any bank-card-size card, or the printed CrackWatch card',
     reviewTitle: 'Check the photo', use: 'Use this photo', retake: 'Retake',
     honest: 'The frame on screen only helps you aim. The width is measured on our server, from this photo.',
@@ -35,6 +36,7 @@ const STR = {
     aim: 'Visez la fissure avec le centre', level: 'Niveau', levelEst: 'estimé par le téléphone', dark: 'Trop sombre — allumez la lampe',
     darkNoTorch: 'Trop sombre — cherchez plus de lumière', great: 'Parfait — ne bougez plus…',
     seenCharuco: 'Carte CrackWatch repérée', seenWallet: 'Carte format bancaire repérée',
+    pressWallet: 'Appuyez au centre de la carte du bout du doigt',
     placeSub: 'Toute carte au format carte bancaire, ou la carte CrackWatch imprimée',
     reviewTitle: 'Vérifiez la photo', use: 'Utiliser cette photo', retake: 'Reprendre',
     honest: 'Le cadre à l’écran sert seulement à viser. La largeur est mesurée sur notre serveur, à partir de cette photo.',
@@ -259,7 +261,10 @@ export function openGuidedCamera({ onPhoto = () => {}, onCancel = () => {}, lang
     // one hint at a time; a new hint must hold for 2 analysed frames (except "great", shown at once)
     if (key === candidate) candidateN++; else { candidate = key; candidateN = 1; }
     if (key === 'great' || candidateN >= 2 || !shownKey) {
-      const sub = key === 'place' ? L.placeSub : key === 'straight' ? L.straightSub : key.startsWith('dark') ? '' : r.card ? L.aim : '';
+      // a wallet card held by its edge stands off the wall and its edge is hidden: ask for a fingertip at its centre
+      const wallet = r.card && r.card.kind === 'wallet';
+      const sub = key === 'place' ? L.placeSub : key === 'straight' ? L.straightSub : key.startsWith('dark') ? ''
+        : wallet ? L.pressWallet : r.card ? L.aim : '';
       setHint(key, sub);
     }
     if (key === 'great' && performance.now() >= cooldownUntil) { if (!holdStart) holdStart = performance.now(); }

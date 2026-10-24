@@ -1,0 +1,470 @@
+[
+ {
+  "photo": "IMG_1641.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.746,
+   "max": 5.835,
+   "unc": 0.113
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.222,
+   "max": 5.206,
+   "unc": 0.119
+  },
+  "scale_err_crack_pct": [
+   0.81,
+   2.14
+  ],
+  "scale_unc_crack_pct": 3.24,
+  "dist_card_crack_mm": 191.3,
+  "card_vs_charuco_plane_mm": -6.0,
+  "plane_angle_deg": 2.7,
+  "ppm_at_card_pct": 1.69,
+  "matched_points": 525,
+  "matched_ratio_pct": 0.84,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.524,
+  "median_ratio_pct": -11.0,
+  "within_2u": false,
+  "folder": "beton-deux-cartes"
+ },
+ {
+  "photo": "IMG_1642.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.501,
+   "max": 6.286,
+   "unc": 0.148
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 3.815,
+   "max": 4.814,
+   "unc": 0.118
+  },
+  "scale_err_crack_pct": [
+   0.25,
+   0.94
+  ],
+  "scale_unc_crack_pct": 2.25,
+  "dist_card_crack_mm": 190.7,
+  "card_vs_charuco_plane_mm": -3.0,
+  "plane_angle_deg": 1.1,
+  "ppm_at_card_pct": 0.69,
+  "matched_points": 470,
+  "matched_ratio_pct": 0.6,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.686,
+  "median_ratio_pct": -15.2,
+  "within_2u": false,
+  "folder": "beton-deux-cartes"
+ },
+ {
+  "photo": "IMG_1644.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 5.084,
+   "max": 6.238,
+   "unc": 0.127
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.384,
+   "max": 5.143,
+   "unc": 0.131
+  },
+  "scale_err_crack_pct": [
+   2.58,
+   3.23
+  ],
+  "scale_unc_crack_pct": 1.61,
+  "dist_card_crack_mm": 223.4,
+  "card_vs_charuco_plane_mm": -2.5,
+  "plane_angle_deg": 3.8,
+  "ppm_at_card_pct": 0.96,
+  "matched_points": 413,
+  "matched_ratio_pct": 0.9,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.7,
+  "median_ratio_pct": -13.8,
+  "within_2u": false,
+  "folder": "beton-deux-cartes"
+ },
+ {
+  "photo": "IMG_1645.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.872,
+   "max": 5.862,
+   "unc": 0.118
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.381,
+   "max": 5.03,
+   "unc": 0.14
+  },
+  "scale_err_crack_pct": [
+   1.74,
+   2.41
+  ],
+  "scale_unc_crack_pct": 1.74,
+  "dist_card_crack_mm": 222.4,
+  "card_vs_charuco_plane_mm": -5.5,
+  "plane_angle_deg": 2.9,
+  "ppm_at_card_pct": 2.03,
+  "matched_points": 538,
+  "matched_ratio_pct": 0.13,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.491,
+  "median_ratio_pct": -10.1,
+  "within_2u": false,
+  "folder": "beton-deux-cartes"
+ },
+ {
+  "photo": "IMG_1646.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 5.035,
+   "max": 5.848,
+   "unc": 0.096
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.459,
+   "max": 5.179,
+   "unc": 0.115
+  },
+  "scale_err_crack_pct": [
+   -0.58,
+   0.94
+  ],
+  "scale_unc_crack_pct": 1.9,
+  "dist_card_crack_mm": 222.1,
+  "card_vs_charuco_plane_mm": -1.8,
+  "plane_angle_deg": 2.3,
+  "ppm_at_card_pct": 0.66,
+  "matched_points": 584,
+  "matched_ratio_pct": 1.34,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.576,
+  "median_ratio_pct": -11.4,
+  "within_2u": false,
+  "folder": "beton-deux-cartes"
+ },
+ {
+  "photo": "IMG_1631.heic",
+  "focal_35mm": 48.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.112,
+   "max": 7.725,
+   "unc": 0.138
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 3.923,
+   "max": 7.146,
+   "unc": 0.106
+  },
+  "scale_err_crack_pct": [
+   1.32,
+   2.46
+  ],
+  "scale_unc_crack_pct": 2.0,
+  "dist_card_crack_mm": 249.6,
+  "card_vs_charuco_plane_mm": -20.7,
+  "plane_angle_deg": 6.7,
+  "ppm_at_card_pct": 4.56,
+  "matched_points": 895,
+  "matched_ratio_pct": -0.73,
+  "matched_within_2u": true,
+  "median_diff_mm": -0.189,
+  "median_ratio_pct": -4.6,
+  "within_2u": true,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1632.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 3.818,
+   "max": 8.062,
+   "unc": 0.126
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.72,
+   "max": 8.18,
+   "unc": 0.138
+  },
+  "scale_err_crack_pct": [
+   0.12,
+   1.62
+  ],
+  "scale_unc_crack_pct": 1.49,
+  "dist_card_crack_mm": 171.7,
+  "card_vs_charuco_plane_mm": -14.9,
+  "plane_angle_deg": 5.4,
+  "ppm_at_card_pct": 4.3,
+  "matched_points": 1840,
+  "matched_ratio_pct": -2.67,
+  "matched_within_2u": true,
+  "median_diff_mm": 2.902,
+  "median_ratio_pct": 76.0,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1633.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.659,
+   "max": 8.357,
+   "unc": 0.117
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.931,
+   "max": 8.204,
+   "unc": 0.13
+  },
+  "scale_err_crack_pct": [
+   1.28,
+   2.57
+  ],
+  "scale_unc_crack_pct": 1.86,
+  "dist_card_crack_mm": 172.8,
+  "card_vs_charuco_plane_mm": -13.9,
+  "plane_angle_deg": 6.0,
+  "ppm_at_card_pct": 4.72,
+  "matched_points": 2582,
+  "matched_ratio_pct": -2.51,
+  "matched_within_2u": true,
+  "median_diff_mm": 2.272,
+  "median_ratio_pct": 48.8,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1634.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.974,
+   "max": 8.153,
+   "unc": 0.125
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.688,
+   "max": 8.18,
+   "unc": 0.142
+  },
+  "scale_err_crack_pct": [
+   1.86,
+   4.45
+  ],
+  "scale_unc_crack_pct": 2.1,
+  "dist_card_crack_mm": 163.0,
+  "card_vs_charuco_plane_mm": -15.7,
+  "plane_angle_deg": 7.8,
+  "ppm_at_card_pct": 5.24,
+  "matched_points": 2704,
+  "matched_ratio_pct": -2.67,
+  "matched_within_2u": true,
+  "median_diff_mm": 1.714,
+  "median_ratio_pct": 34.5,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1635.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.126,
+   "max": 8.029,
+   "unc": 0.121
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.707,
+   "max": 8.058,
+   "unc": 0.139
+  },
+  "scale_err_crack_pct": [
+   1.74,
+   4.24
+  ],
+  "scale_unc_crack_pct": 2.09,
+  "dist_card_crack_mm": 171.6,
+  "card_vs_charuco_plane_mm": -15.1,
+  "plane_angle_deg": 7.4,
+  "ppm_at_card_pct": 5.09,
+  "matched_points": 2506,
+  "matched_ratio_pct": -1.92,
+  "matched_within_2u": true,
+  "median_diff_mm": 2.581,
+  "median_ratio_pct": 62.6,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1636.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 5.354,
+   "max": 9.819,
+   "unc": 0.124
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.502,
+   "max": 9.171,
+   "unc": 0.168
+  },
+  "scale_err_crack_pct": [
+   2.43,
+   6.41
+  ],
+  "scale_unc_crack_pct": 2.89,
+  "dist_card_crack_mm": 172.6,
+  "card_vs_charuco_plane_mm": -17.5,
+  "plane_angle_deg": 8.3,
+  "ppm_at_card_pct": 5.64,
+  "matched_points": 2519,
+  "matched_ratio_pct": -2.62,
+  "matched_within_2u": true,
+  "median_diff_mm": 1.148,
+  "median_ratio_pct": 21.4,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1637.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.278,
+   "max": 8.272,
+   "unc": 0.124
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 5.73,
+   "max": 8.279,
+   "unc": 0.142
+  },
+  "scale_err_crack_pct": [
+   1.18,
+   4.92
+  ],
+  "scale_unc_crack_pct": 2.92,
+  "dist_card_crack_mm": 172.7,
+  "card_vs_charuco_plane_mm": -21.1,
+  "plane_angle_deg": 7.9,
+  "ppm_at_card_pct": 4.79,
+  "matched_points": 2695,
+  "matched_ratio_pct": -3.15,
+  "matched_within_2u": true,
+  "median_diff_mm": 1.452,
+  "median_ratio_pct": 33.9,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ },
+ {
+  "photo": "IMG_1638.heic",
+  "focal_35mm": 24.0,
+  "charuco": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 4.323,
+   "max": 8.169,
+   "unc": 0.138
+  },
+  "idcard": {
+   "status": "ok",
+   "why": null,
+   "detail": null,
+   "median": 6.49,
+   "max": 8.742,
+   "unc": 0.166
+  },
+  "scale_err_crack_pct": [
+   0.52,
+   2.64
+  ],
+  "scale_unc_crack_pct": 2.42,
+  "dist_card_crack_mm": 170.4,
+  "card_vs_charuco_plane_mm": -18.1,
+  "plane_angle_deg": 6.8,
+  "ppm_at_card_pct": 3.91,
+  "matched_points": 2257,
+  "matched_ratio_pct": -1.86,
+  "matched_within_2u": true,
+  "median_diff_mm": 2.167,
+  "median_ratio_pct": 50.1,
+  "within_2u": false,
+  "folder": "enduit-deux-cartes"
+ }
+]

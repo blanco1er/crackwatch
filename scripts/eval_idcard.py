@@ -144,7 +144,7 @@ def summarize(R, widths):
         md.append(f"- Incertitude annoncée (1 σ) : médiane {pct(np.median([r['unc_crack'] for r in ok]))} ; "
                   f"erreur ≤ 2 σ dans {100 * np.mean(z <= 2):.0f} % des cas, ≤ 3 σ dans {100 * np.mean(z <= 3):.0f} %")
     md += ["", "| Doigt | scènes | acceptées | erreur médiane | P90 | bord reconstruit | refus « card_occluded » |", "|---|---|---|---|---|---|---|"]
-    for f in ("none", "short_mid", "long_mid", "corner", "short_full"):
+    for f in ("none", "short_mid", "long_mid", "corner", "short_full", "press_centre", "hand_long"):
         rows = [r for r in R if r["finger"] == f]
         if not rows:
             continue

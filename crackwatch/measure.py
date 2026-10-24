@@ -973,7 +973,10 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
     ref = None
     if card is None and reference in ("idcard", "auto"):
         from .idcard import detect_idcard
-        card, ref = detect_idcard(bgr, focal_px=focal_px)
+        ch = detect_card(gray) if reference == "idcard" else None      # a printed sheet in the photo: hide it
+        excl = [apply_h(ch.H_img_from_board, [(a, b), (c, b), (c, d), (a, d)])
+                for a, b, c, d in [ch.spec.paper_rect_in_board_frame()]] if ch is not None else None
+        card, ref = detect_idcard(bgr, focal_px=focal_px, exclude_polys=excl)
     q = estimate_quality(gray, card)
     if ref is not None:
         q.update(ref.quality_fields())
@@ -982,6 +985,14 @@ def measure_image(bgr: np.ndarray, exclude_rects_mm=(), R=None, extent=None,
         if keep_debug and ref is not None:
             res.debug = {"redact_polys_img": ref.redact_polys_img}
         return res
+    if extent is None and getattr(card, "reference", "charuco") == "idcard":
+        # rectify() clips the window to -350..450 mm around the board ORIGIN, tuned for the A6 ChArUco card; a bank
+        # card sits anywhere in the photo, so clip around the card's centre instead (+-450 mm) to see the whole crack
+        hh, ww = gray.shape
+        cb = apply_h(np.linalg.inv(card.H_img_from_board), [(0, 0), (ww, 0), (ww, hh), (0, hh)])
+        c0 = np.array([42.8, 27.0])
+        lo, hi = np.maximum(cb.min(0), c0 - 450.0), np.minimum(cb.max(0), c0 + 450.0)
+        extent = (float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1]))
     rect = rectify(gray, card, R=R, extent=extent, exclude_rects_mm=exclude_rects_mm, paper_rect_mm=paper_rect_mm)
     seg = segment(rect, seg_params)
     card_info = {"spec": card.spec.name, "corners": card.n_corners, "reproj_rms_px": round(card.reproj_rms_px, 3),

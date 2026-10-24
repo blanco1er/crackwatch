@@ -130,6 +130,18 @@ def finger_polygon(rng, kind):
     w = rng.uniform(15, 18)
     if kind == "none":
         return None
+    if kind == "press_centre":           # fingertip pressing the card's centre, finger crossing a long edge
+        side = 1.0 if rng.random() < 0.5 else -1.0
+        ang = rng.uniform(-0.5, 0.5)
+        d = np.array([math.sin(ang), side * math.cos(ang)])
+        a = np.array([ID1_W_MM / 2 + rng.uniform(-8, 8), ID1_H_MM / 2 + rng.uniform(-5, 5)])
+        return _capsule(a, a + d * 90.0, rng.uniform(16, 20))
+    if kind == "hand_long":              # hand / palm over most of a long edge (two short fragments stay visible)
+        side = 1.0 if rng.random() < 0.5 else -1.0
+        c = np.array([ID1_W_MM / 2 + rng.uniform(-5, 5), ID1_H_MM / 2 + side * (ID1_H_MM / 2 + rng.uniform(8, 14))])
+        rx, ry = rng.uniform(30, 34), rng.uniform(20, 26)
+        t = np.linspace(0, 2 * math.pi, 48, endpoint=False)
+        return np.column_stack([c[0] + rx * np.cos(t), c[1] + ry * np.sin(t)])
     if kind == "short_full":            # finger laid along a short edge: hides it almost entirely
         x = 0.0 if rng.random() < 0.5 else ID1_W_MM
         c = np.array([x + rng.uniform(-2, 2), ID1_H_MM / 2 + rng.uniform(-3, 3)])
@@ -154,7 +166,10 @@ def finger_polygon(rng, kind):
             d = np.array([math.cos(ang) * d[0] - math.sin(ang) * d[1], math.sin(ang) * d[0] + math.cos(ang) * d[1]])
         a = edge - d * rng.uniform(8, 15)            # fingertip inside the card
         b = a + d * 70.0
-    # capsule outline
+    return _capsule(a, b, w)
+
+
+def _capsule(a, b, w):
     dd = (b - a) / np.linalg.norm(b - a)
     nn = np.array([-dd[1], dd[0]])
     pts = []
@@ -210,7 +225,8 @@ def degrade_color(img, rng):
 
 # ------------------------------------------------------------------------------------------- scene
 WALL_TINTS = [(0.93, 0.97, 1.0), (1.0, 1.0, 1.0), (0.86, 0.94, 1.0), (0.97, 0.98, 0.96), (0.80, 0.88, 0.95)]
-FINGER_KINDS = (("none", 0.55), ("short_mid", 0.15), ("corner", 0.12), ("long_mid", 0.08), ("short_full", 0.10))
+FINGER_KINDS = (("none", 0.40), ("short_mid", 0.10), ("corner", 0.12), ("long_mid", 0.06), ("short_full", 0.08),
+                ("press_centre", 0.14), ("hand_long", 0.10))
 
 
 def _visible(H, pts, margin):
@@ -244,7 +260,8 @@ def make_scene(seed, finger=None, hard=False, w_base=None, max_tilt=None, both=F
         c = synth.sample_camera(rng, look, hard)
         if max_tilt is not None and c["tilt_deg"] > max_tilt:
             continue
-        c["focal_px"] = float(rng.uniform(0.7, 1.0) * IMG_W)
+        # phone main cameras: 23-30 mm in 35 mm equivalent (on the image diagonal), incl. 16:9 / 4:3 crops
+        c["focal_px"] = float(rng.uniform(23.0, 30.0) / 43.27 * math.hypot(IMG_W, IMG_H))
         K, R, Cc = camera(look, c["ppm"], c["tilt_deg"], c["azimuth_deg"], c["roll_deg"], c["focal_px"])
         Hw = plane_h(K, R, Cc, 0.0)
         if _visible(Hw, cpts, 20).mean() > 0.7 and _visible(Hw, outline_wall, 15).all() \
@@ -323,7 +340,7 @@ def make_scene(seed, finger=None, hard=False, w_base=None, max_tilt=None, both=F
         cv2.fillPoly(fm, [np.round(fp * 16).astype(np.int32)], 1.0, cv2.LINE_AA, 4)
         dist = cv2.distanceTransform((fm > 0.5).astype(np.uint8), cv2.DIST_L2, 5)
         shade = 0.65 + 0.35 * np.sqrt(np.clip(dist / max(dist.max(), 1.0), 0, 1))
-        skin = np.array([0.55, 0.66, 0.86], np.float32) * rng.uniform(0.7, 1.1)
+        skin = np.array([0.52, 0.63, 0.86], np.float32) * rng.uniform(0.3, 1.1)     # dark to light skin
         imgB = imgB * (1 - fm[..., None]) + (skin * shade[..., None]) * fm[..., None]
     seed_deg = int(rng.integers(1 << 30))
     outA, degA = degrade_color(imgA.astype(np.float32), np.random.default_rng(seed_deg))
